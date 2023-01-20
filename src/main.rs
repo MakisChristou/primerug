@@ -52,15 +52,15 @@ fn bruteforce_search(v: &Vec<u32>)
 }
 
 
-fn wheel_factorization(v: &Vec<u32>, T: &Integer, primorial: &Integer, offset: &Integer)
+fn wheel_factorization(v: &Vec<u32>, t: &Integer, primorial: &Integer, offset: &Integer)
 {
     // $$T^{'} = T + p_m\# - (T \; mod \; p_m\#)$$
-    let mut T_prime: Integer = T.add(primorial).into();
-    let mut Ret: Integer = T_prime.clone() % primorial;
-    let mut T_prime: Integer = T_prime.sub(Ret).into();
+    let t_prime: Integer = t.add(primorial).into();
+    let ret: Integer = t_prime.clone() % primorial;
+    let t_prime: Integer = t_prime.sub(ret).into();
 
     // Start from T^{'} since Integer division works only if exact
-    let mut f: Integer = T_prime.div_exact_ref(&primorial).into();
+    let mut f: Integer = t_prime.div_exact_ref(&primorial).into();
 
     println!("f: {}", f);
     println!("primorial: {}", primorial);
@@ -77,7 +77,7 @@ fn wheel_factorization(v: &Vec<u32>, T: &Integer, primorial: &Integer, offset: &
 }
 
 // Given the Target difficulty, choose a primorial
-fn choose_primorial_number(T: Integer) -> u16
+fn choose_primorial_number(t: Integer) -> u16
 {
     return 3; // hardcode to 3 for now
 }
@@ -147,13 +147,13 @@ fn main()
 
     let constallation_pattern: Vec<u32> = vec![0, 4, 6, 10, 12, 16];
 
-    let T_str = "1000000000000000000000000000000000";
-    let digits = T_str.len();
+    let t_str = "1000000000000000000000000000000000";
+    let digits = t_str.len();
 
     println!("Searching for Tuples with >= {} digits", digits);
 
 
-    let T = Integer::from_str(T_str).unwrap();
-    wheel_factorization(&constallation_pattern, &T, &Integer::from(2*3*5*7), &Integer::from(97));
+    let t = Integer::from_str(t_str).unwrap();
+    wheel_factorization(&constallation_pattern, &t, &Integer::from(2*3*5*7), &Integer::from(97));
 
 }
