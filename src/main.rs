@@ -5,6 +5,9 @@ use std::str::FromStr;
 use rug::{Assign, Integer};
 
 
+mod tools;
+mod constellation;
+
 // Based Fermat primality test
 fn fermat(n: &Integer) -> bool
 {
@@ -70,90 +73,51 @@ fn wheel_factorization(v: &Vec<u32>, t: &Integer, primorial: &Integer, offset: &
         let j: Integer = (primorial.mul(&f)).add(offset).into();
         if is_constellation(&j, &v)
         {
-            println!("{}", j);
+            println!("Found {}-tuple {}", v.len(), j);
         }
         f+=1;
     }
 }
 
-// Given the Target difficulty, choose a primorial
-fn choose_primorial_number(t: Integer) -> u16
-{
-    return 3; // hardcode to 3 for now
-}
-
-// Returns the offcets for a given primorial
-fn get_offsets(primorial_number: u16) -> Vec<u64>
-{
-    return Vec::new();
-}
-
-// Generate all prime numbers up to a given limit using an efficient Sieve of Eratosthenis
-// Original implementation by Pttn
-// https://github.com/Pttn/rieMiner/blob/master/tools.cpp#L25
-fn generate_primetable(prime_table_limit: u64) -> Vec<u64>
-{
-    if prime_table_limit < 2
-    {
-        return Vec::new();
-    }
-
-    let mut composite_table: Vec<u64> = Vec::new();
-
-    composite_table.resize((prime_table_limit as usize)/128 + 1, 0);
-
-    let mut f = 3;
-
-    while f*f <=prime_table_limit
-    {
-        if ((composite_table[(f >> 7) as usize]) & (1 <<((f >> 1) & 63))) > 0
-        {
-            f+=2;
-            continue;
-        }
-
-        let mut m = (f*f) >> 1;
-
-        while m <= (prime_table_limit >> 1)
-        {
-            composite_table[(m as usize) >> 6] |= 1 << (m & 63);
-
-            m+=f;
-        }
-        f+=2;
-    }
-
-    // We have eliminated the composites
-    let mut prime_table: Vec<u64> = Vec::from(vec![1,2]);
-
-    let mut i = 1;
-
-    while (i << 1) + 1 <= prime_table_limit
-    {
-        if composite_table[(i as usize) >> 6] & (1 << (i & 63)) != 0
-        {
-            prime_table.push((i << 1) + 1);
-        }
-        i+=1;
-    }
-    prime_table
-}
-
 fn main()
 {
-    // let primes = generate_primetable(2147483648);
+    // let primes = tools::generate_primetable(100);
     // return;
 
 
+    // Algorithm Steps
+    // User Given: pattern, pattern offsets, difficulty
+    // Calculate primetableLimit = (difficulty^6) / (2^(3*(pattern_size+7))
+    // Generate primetable based on limit
+    // Sieve bits = given
+    // 
+    // Pick the largest primorial based on sieve bits
     let constallation_pattern: Vec<u32> = vec![0, 4, 6, 10, 12, 16];
 
-    let t_str = "1000000000000000000000000000000000";
+    let t_str = "100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
     let digits = t_str.len();
 
     println!("Searching for Tuples with >= {} digits", digits);
 
-
     let t = Integer::from_str(t_str).unwrap();
-    wheel_factorization(&constallation_pattern, &t, &Integer::from(2*3*5*7), &Integer::from(97));
+    wheel_factorization(&constallation_pattern, &t, &tools::get_primorial(771), &Integer::from(145933845312371u64));
+
+    // c1 = p_30 * 1 + 1091257 + 0
+    // c2 = p_30 * 1 + 1091257 + 4
+    // c3 = p_30 * 1 + 1091257 + 6
+    // c4 = p_30 * 1 + 1091257 + 10
+    // c5 = p_30 * 1 + 1091257 + 12
+    // c6 = p_30 * 1 + 1091257 + 16
+
+    // Prime P = prime_table[30]
+    // Prime P+1 = prime_table[31]
+    // Prime P+2 = prime_table[32]
+    // Check if c1 is divisible by prime P+1, P+2, ..., prime_table_limit
+    // Check if c2 is divisible by prime P+1, P+2, ..., prime_table_limit
+    // Check if c3 is divisible by prime P+1, P+2, ..., prime_table_limit
+    // Check if c4 is divisible by prime P+1, P+2, ..., prime_table_limit
+    // Check if c5 is divisible by prime P+1, P+2, ..., prime_table_limit
+    // Check if c6 is divisible by prime P+1, P+2, ..., prime_table_limit
+ 
 
 }
