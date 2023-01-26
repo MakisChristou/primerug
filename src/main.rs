@@ -80,7 +80,7 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 }
 
 
-fn efficient_wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>)
+fn efficient_wheel_factorization_hashset(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>)
 {
     // T2 = T + p_m - (T % p_m)$
     let t_prime: Integer = t.add(primorial).into();
@@ -171,21 +171,139 @@ fn efficient_wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer,
 
 }
 
+
+fn efficient_wheel_factorization_sieve(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64)
+{
+    // Counters
+    let mut primes_count = 0;
+    let mut primality_tests = 0;
+
+    // T2 = T + p_m - (T % p_m)$
+    let t_prime: Integer = t.add(primorial).into();
+    let ret: Integer = t.clone() % primorial;
+    let t_prime: Integer = t_prime.sub(ret).into();
+
+    println!("f: 0");
+    println!("primorial: {}", primorial);
+    println!("t_prime: {}", t_prime);
+    println!("Candidates of the form: p_m * f + o + T2");
+    println!("Candidates of the form: {} * f + {} + {}", primorial, offset, t_prime);
+
+    let sieve = get_eliminated_factors(primes, inverses, &t_prime, offset, v, prime_table_limit);
+
+    let f_max = 10000000u64;
+    
+    let mut i = 0;
+
+    println!("Primality Testing...");
+
+    // Start from T2 since Integer division works only if exact
+    // f = t2 / p_m
+    let mut f: Integer = t_prime.div_exact_ref(&primorial).into();
+
+    let mut f = 0;
+
+    let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
+
+    while i < f_max
+    {
+        if !sieve[f]
+        {
+            // j = p_m * f + o + T2
+            let j: Integer = (primorial.mul(&Integer::from(f))).add(&t_prime_plus_offset).into();
+
+
+            // Fermat Test on j
+            if is_constellation(&j, &v)
+            {
+                primes_count+=1;
+                // println!("Found {}-tuple {}", v.len(), j);
+            }
+            primality_tests+=1;
+        }
+        f+=1;
+        i+=1;
+    }
+
+    println!("Found {} primes, with {} primality tests, eliminated {}", primes_count, primality_tests, f_max - primality_tests);
+}
+
+
+fn get_eliminated_factors(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<bool>
+{
+    let k_max = 1000;
+
+    let sieve_size = prime_table_limit +  prime_table_limit * k_max; // This has to be the same as prime_table limit * k_max
+
+    let mut sieve = Vec::new();
+
+    sieve.resize(sieve_size as usize, false);
+
+
+    let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
+
+    println!("Sieving...");
+
+    let mut i = 0;
+    for p in primes
+    {   
+        // Don't panic (I am sure there is a better way to do this)
+        if *p != 0
+        {
+            for c_i in v
+            {
+                // (T2 + o + c_i)
+                let t_prime_plus_offset_plus_c_i: Integer = (&t_prime_plus_offset).add(c_i).into();
+
+                // ((T2 + o + c_i) % p)
+                let r = t_prime_plus_offset_plus_c_i.mod_u((*p).try_into().unwrap());
+
+                // f_p = ((p - ((T2 + o + c_i) % p))*p_m_inverse) % p
+                let mut f_p = ((p- (r as u64) ) * inverses[i]) % p;
+                // eliminated_factors.insert(Integer::from(f_p));
+
+                // println!("Eliminated {}", f_p);
+                // How unsafe can you be
+                sieve[f_p as usize] = true;
+
+                // eliminated_count+=1;
+                
+                // Sieve out multiples of f_p
+                for k in 0..k_max
+                {
+                    f_p += p;
+                    sieve[f_p as usize] = true;
+                    // eliminated_factors.insert(Integer::from(f_p));
+                    // eliminated_count+=1;
+                }
+            }
+            i+=1;
+        }
+    }
+
+    sieve
+}
+
 fn main()
 {
+    // let primes = tools::sieve_of_eratosthenes(2_000_000_000);
+    // return;
+
     let m: u64 = 3; // Choose primorial here
 
     let o: u64 = 97; // Choose offset here
 
+    let prime_table_limit = 2_000_000;
+
     let p_m = tools::get_primorial(m);
 
-    let primes = tools::generate_primetable(2_000_000);
+    let primes = tools::generate_primetable(prime_table_limit);
 
     let inverses = tools::get_primorial_inverse(&p_m, &primes);
 
 
     // Pick the largest primorial based on sieve bits
-    let constallation_pattern: Vec<u64> = vec![0, 2, 6, 8, 12, 18, 20, 26];
+    let constallation_pattern: Vec<u64> = vec![0, 4, 6, 10, 12, 16];
 
     let t_str = "10000000";
     let digits = t_str.len();
@@ -194,10 +312,10 @@ fn main()
 
     let t = Integer::from_str(t_str).unwrap();
 
-
-    efficient_wheel_factorization(&constallation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses)
-
     // wheel_factorization(&constallation_pattern, &t, &p_m, &Integer::from(o));
- 
 
+    // efficient_wheel_factorization_hashset(&constallation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses);
+
+    efficient_wheel_factorization_sieve(&constallation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses, prime_table_limit);
+ 
 }

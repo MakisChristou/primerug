@@ -98,3 +98,46 @@ pub fn get_primorial_inverse(primorial: &Integer, v: &Vec<u64>) -> Vec<u64>
 
     return inverses;
 }
+
+// Memory inneficient but readable sieve of eratosthenis
+pub fn sieve_of_eratosthenes(n: u64) -> Vec<u64>
+{
+    if n < 2
+    {
+        return Vec::new();
+    }
+
+    let mut composite_table: Vec<bool> = Vec::new();
+    composite_table.resize((n as usize)+1, true);
+
+    let mut p = 2;
+
+    while p*p <= n
+    {
+        if composite_table[p as usize] == true
+        {
+            let mut i = p*p;
+
+            while i < n
+            { 
+                composite_table[i as usize] = false;
+
+                i+=p;
+            }
+        }
+        p+=1;
+    }
+
+    let mut primes = Vec::new();
+
+    let mut index = 0;
+    for i in composite_table
+    {
+        if i && index > 1
+        {
+            primes.push(index);
+        }
+        index+=1;
+    }
+    primes
+}
