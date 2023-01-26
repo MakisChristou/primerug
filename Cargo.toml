@@ -1,5 +1,5 @@
 [package]
-name = "prime_rug"
+name = "primerug"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 rug = "1.19.0"
+bitvec = "1"

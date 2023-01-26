@@ -2,6 +2,8 @@ use std::ops::MulAssign;
 use std::ops::Mul;
 use rug::{Assign, Integer};
 
+use bitvec::prelude::*;
+
 // Given the Target difficulty, choose a primorial
 pub fn choose_primorial_number(t: Integer) -> u16
 {
@@ -76,4 +78,23 @@ pub fn generate_primetable(prime_table_limit: u64) -> Vec<u64>
         i+=1;
     }
     prime_table
+}
+
+pub fn get_primorial_inverse(primorial: &Integer, v: &Vec<u64>) -> Vec<u64>
+{
+    let mut inverses = Vec::new();
+
+    for i in v
+    {
+        let modulo = Integer::from(*i);
+        let r = primorial.invert_ref(&modulo);
+
+        let inverse = match r {
+            Some(r) => Integer::from(r),
+            None => Integer::from(0),
+        };        
+        inverses.push(inverse.to_u64().unwrap());
+    }
+
+    return inverses;
 }

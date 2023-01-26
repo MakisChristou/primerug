@@ -3,7 +3,7 @@ use std::ops::Sub;
 use std::ops::Add;
 use std::str::FromStr;
 use rug::{Assign, Integer};
-
+use std::collections::HashSet;
 
 mod tools;
 mod constellation;
@@ -21,7 +21,7 @@ fn fermat(n: &Integer) -> bool
     Integer::from(k) == Integer::from(1)
 }
 
-fn is_constellation(n: &Integer, v: &Vec<u32>) -> bool
+fn is_constellation(n: &Integer, v: &Vec<u64>) -> bool
 {
     let mut count = 0;
     for i in v
@@ -30,10 +30,10 @@ fn is_constellation(n: &Integer, v: &Vec<u32>) -> bool
 
         if !fermat(&c)
         {
-            if count > v.len()-2
-            {
-                println!("Found {}-tuple", v.len()-2)
-            }
+            // if count > v.len()-2
+            // {
+            //     println!("Found {}-tuple", v.len()-2)
+            // }
             return false;
         }
         count += 1;
@@ -41,9 +41,8 @@ fn is_constellation(n: &Integer, v: &Vec<u32>) -> bool
     true
 }
 
-fn bruteforce_search(v: &Vec<u32>)
+fn bruteforce_search(v: &Vec<u64>)
 {
-
     for i in (5..10_000_000u64).step_by(2)
     {
         if is_constellation(&Integer::from(i), v)
@@ -55,7 +54,7 @@ fn bruteforce_search(v: &Vec<u32>)
 }
 
 
-fn wheel_factorization(v: &Vec<u32>, t: &Integer, primorial: &Integer, offset: &Integer)
+fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer)
 {
     // $$T^{'} = T + p_m\# - (T \; mod \; p_m\#)$$
     let t_prime: Integer = t.add(primorial).into();
@@ -65,6 +64,7 @@ fn wheel_factorization(v: &Vec<u32>, t: &Integer, primorial: &Integer, offset: &
     // Start from T^{'} since Integer division works only if exact
     let mut f: Integer = t_prime.div_exact_ref(&primorial).into();
 
+    println!("Searching with...");
     println!("f: {}", f);
     println!("primorial: {}", primorial);
 
@@ -79,45 +79,125 @@ fn wheel_factorization(v: &Vec<u32>, t: &Integer, primorial: &Integer, offset: &
     }
 }
 
+
+fn efficient_wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>)
+{
+    // T2 = T + p_m - (T % p_m)$
+    let t_prime: Integer = t.add(primorial).into();
+    let ret: Integer = t.clone() % primorial;
+    let t_prime: Integer = t_prime.sub(ret).into();
+
+    // Start from T2 since Integer division works only if exact
+    // f = t2 / p_m
+    let mut f: Integer = t_prime.div_exact_ref(&primorial).into();
+
+    println!("f: {}", f);
+    println!("primorial: {}", primorial);
+    println!("t_prime: {}", t_prime);
+
+    // Sieve
+    let mut eliminated_factors: HashSet<Integer> = HashSet::new();
+
+    // Counters
+    let mut eliminated_count = 0;
+    let mut primes_count = 0;
+    let mut primality_tests = 0;
+
+    let k_max = 50;
+
+    let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
+
+    println!("Sieving...");
+
+    let mut i = 0;
+    for p in primes
+    {   
+        // Don't panic (I am sure there is a better way to do this)
+        if *p != 0
+        {
+            for c_i in v
+            {
+                // (T2 + o + c_i)
+                let t_prime_plus_offset_plus_c_i: Integer = (&t_prime_plus_offset).add(c_i).into();
+
+                // ((T2 + o + c_i) % p)
+                let r = t_prime_plus_offset_plus_c_i.mod_u((*p).try_into().unwrap());
+
+                // f_p = ((p - ((T2 + o + c_i) % p))*p_m_inverse) % p
+                let mut f_p = ((p- (r as u64) ) * inverses[i]) % p;
+                eliminated_factors.insert(Integer::from(f_p));
+                eliminated_count+=1;
+                
+                // Sieve out multiples of f_p
+                for k in 0..k_max
+                {
+                    f_p += p;
+                    eliminated_factors.insert(Integer::from(f_p));
+                    eliminated_count+=1;
+                }
+            }
+            i+=1;
+        }
+    }
+
+    let f_max = 10000000000u64;
+    
+    let mut i = 0;
+
+    println!("Primality Testing...");
+
+    while i < f_max
+    {
+        if !eliminated_factors.contains(&Integer::from(&f))
+        {
+            // j = p_m * f + o
+            let j: Integer = (primorial.mul(&f)).add(offset).into();
+
+            // Fermat Test on j
+            if is_constellation(&j, &v)
+            {
+                primes_count+=1;
+                // println!("Found {}-tuple {}", v.len(), j);
+            }
+            primality_tests+=1;
+        }
+        f+=1;
+        i+=1;
+    }
+
+
+    println!("Found {} primes, with {} primality tests, eliminated {}", primes_count, primality_tests, eliminated_count);
+
+
+}
+
 fn main()
 {
-    // let primes = tools::generate_primetable(100);
-    // return;
+    let m: u64 = 3; // Choose primorial here
+
+    let o: u64 = 97; // Choose offset here
+
+    let p_m = tools::get_primorial(m);
+
+    let primes = tools::generate_primetable(2_000_000);
+
+    let inverses = tools::get_primorial_inverse(&p_m, &primes);
 
 
-    // Algorithm Steps
-    // User Given: pattern, pattern offsets, difficulty
-    // Calculate primetableLimit = (difficulty^6) / (2^(3*(pattern_size+7))
-    // Generate primetable based on limit
-    // Sieve bits = given
-    // 
     // Pick the largest primorial based on sieve bits
-    let constallation_pattern: Vec<u32> = vec![0, 4, 6, 10, 12, 16];
+    let constallation_pattern: Vec<u64> = vec![0, 2, 6, 8, 12, 18, 20, 26];
 
-    let t_str = "100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+    let t_str = "10000000";
     let digits = t_str.len();
 
     println!("Searching for Tuples with >= {} digits", digits);
 
     let t = Integer::from_str(t_str).unwrap();
-    wheel_factorization(&constallation_pattern, &t, &tools::get_primorial(771), &Integer::from(145933845312371u64));
 
-    // c1 = p_30 * 1 + 1091257 + 0
-    // c2 = p_30 * 1 + 1091257 + 4
-    // c3 = p_30 * 1 + 1091257 + 6
-    // c4 = p_30 * 1 + 1091257 + 10
-    // c5 = p_30 * 1 + 1091257 + 12
-    // c6 = p_30 * 1 + 1091257 + 16
 
-    // Prime P = prime_table[30]
-    // Prime P+1 = prime_table[31]
-    // Prime P+2 = prime_table[32]
-    // Check if c1 is divisible by prime P+1, P+2, ..., prime_table_limit
-    // Check if c2 is divisible by prime P+1, P+2, ..., prime_table_limit
-    // Check if c3 is divisible by prime P+1, P+2, ..., prime_table_limit
-    // Check if c4 is divisible by prime P+1, P+2, ..., prime_table_limit
-    // Check if c5 is divisible by prime P+1, P+2, ..., prime_table_limit
-    // Check if c6 is divisible by prime P+1, P+2, ..., prime_table_limit
+    efficient_wheel_factorization(&constallation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses)
+
+    // wheel_factorization(&constallation_pattern, &t, &p_m, &Integer::from(o));
  
 
 }

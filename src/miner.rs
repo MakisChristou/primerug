@@ -10,7 +10,6 @@ impl Miner
 {
     fn generate_primetable(&self) -> Vec<u64>
     {
-
         return Vec::new();
     }
 
