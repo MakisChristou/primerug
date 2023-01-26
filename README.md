@@ -1,5 +1,5 @@
-# prime_rug
-A prime k-tuple finder based on the rug crate. The code is heavily inspired by Pttn's [RieMiner](https://github.com/Pttn/rieMiner) if not an attempt to make a working Rust port.
+# primerug
+A prime k-tuple finder based on the rug Rust crate. The code is heavily inspired by Pttn's [RieMiner](https://github.com/Pttn/rieMiner) if not an attempt to make a working Rust port.
 
 
 # Build
@@ -10,14 +10,16 @@ cargo build --release
 
 # Run
 ```bash
-makis@xps13:~/Repositories/primeRug$ ./target/release/prime_rug 
-Searching for Tuples with >= 34 digits
-f: 4761904761904761904761904761905
-primorial: 210
-1000000000000000000000000211604127
-Found 4-tuple
-Found 4-tuple
-makis@xps13:~/Repositories/primeRug$
+makis@xps13:~/Repositories/primerug$ ./target/release/primerug 
+Searching for Tuples with >= 8 digits
+f: 0
+primorial: 30
+t_prime: 10000020
+Candidates of the form: p_m * f + o + T2
+Candidates of the form: 30 * f + 97 + 10000020
+Sieving...
+Primality Testing...
+Found 142 primes, with 167267 primality tests, eliminated 9832733
 ```
 
 

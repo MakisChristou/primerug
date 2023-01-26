@@ -4,6 +4,7 @@ use std::ops::Add;
 use std::str::FromStr;
 use rug::{Assign, Integer};
 use std::collections::HashSet;
+use rand::{self, Rng}; // 0.8.0
 
 mod tools;
 mod constellation;
@@ -20,6 +21,7 @@ fn fermat(n: &Integer) -> bool
     // a == 1?
     Integer::from(k) == Integer::from(1)
 }
+
 
 fn is_constellation(n: &Integer, v: &Vec<u64>) -> bool
 {
@@ -40,6 +42,7 @@ fn is_constellation(n: &Integer, v: &Vec<u64>) -> bool
     }
     true
 }
+
 
 fn bruteforce_search(v: &Vec<u64>)
 {
@@ -191,7 +194,7 @@ fn efficient_wheel_factorization_sieve(v: &Vec<u64>, t: &Integer, primorial: &In
 
     let sieve = get_eliminated_factors(primes, inverses, &t_prime, offset, v, prime_table_limit);
 
-    let f_max = 10000000u64;
+    let f_max = 1000000u64;
     
     let mut i = 0;
 
@@ -284,10 +287,12 @@ fn get_eliminated_factors(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Inte
     sieve
 }
 
+
 fn main()
 {
-    // let primes = tools::sieve_of_eratosthenes(2_000_000_000);
-    // return;
+    let D: u32 = 10; // Choose number of digits
+
+    let constallation_pattern: Vec<u64> = vec![0, 4, 6, 10, 12, 16]; // Choose desired pattern
 
     let m: u64 = 3; // Choose primorial here
 
@@ -302,20 +307,25 @@ fn main()
     let inverses = tools::get_primorial_inverse(&p_m, &primes);
 
 
-    // Pick the largest primorial based on sieve bits
-    let constallation_pattern: Vec<u64> = vec![0, 4, 6, 10, 12, 16];
+    let mut t_str = String::from("");
+    let mut rng = rand::thread_rng();
 
-    let t_str = "10000000";
-    let digits = t_str.len();
+    for i in (0..D)
+    {
+        let digit: u32 = rng.gen_range(1..9);
+        let s: String = digit.to_string();
+        t_str.push_str(&s);
+    }
 
-    println!("Searching for Tuples with >= {} digits", digits);
+    println!("difficulty seed: {}", t_str);
 
-    let t = Integer::from_str(t_str).unwrap();
+    println!("Searching for Tuples with >= {} digits", D);
+
+    let t = Integer::from_str(&t_str).unwrap();
 
     // wheel_factorization(&constallation_pattern, &t, &p_m, &Integer::from(o));
 
     // efficient_wheel_factorization_hashset(&constallation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses);
 
     efficient_wheel_factorization_sieve(&constallation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses, prime_table_limit);
- 
 }
