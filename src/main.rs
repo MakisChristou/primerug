@@ -4,10 +4,15 @@ use std::ops::Add;
 use std::str::FromStr;
 use rug::{Assign, Integer};
 use std::collections::HashSet;
+use args::Args;
+use clap::Parser;
 
 
+// My own stuff
 mod tools;
 mod constellation;
+mod args;
+
 
 // Based Fermat primality test
 fn fermat(n: &Integer) -> bool
@@ -67,9 +72,9 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
     // Start from T^{'} since Integer division works only if exact
     let mut f: Integer = t_prime.div_exact_ref(&primorial).into();
 
-    println!("Searching with...");
-    println!("f: {}", f);
-    println!("primorial: {}", primorial);
+    // println!("Searching with...");
+    // println!("f: {}", f);
+    // println!("primorial: {}", primorial);
 
     while true
     {
@@ -184,15 +189,15 @@ fn efficient_wheel_factorization_sieve(v: &Vec<u64>, t: &Integer, primorial: &In
     let ret: Integer = t.clone() % primorial;
     let t_prime: Integer = t_prime.sub(ret).into();
 
-    println!("f: 0");
-    println!("primorial: {}", primorial);
-    println!("t_prime: {}", t_prime);
-    println!("Candidates of the form: p_m * f + o + T2");
+    // println!("f: 0");
+    // println!("primorial: {}", primorial);
+    // println!("t_prime: {}", t_prime);
+    // println!("Candidates of the form: p_m * f + o + T2");
     println!("Candidates of the form: {} * f + {} + {}", primorial, offset, t_prime);
 
     let sieve = get_eliminated_factors(primes, inverses, &t_prime, offset, v, prime_table_limit);
 
-    println!("Sieve Size: {}", sieve.len());
+    println!("Sieve Size: {} MB", sieve.len()/1000000);
 
     let f_max = 10000000000u64; // Has to be lower than sieve size
 
@@ -292,35 +297,34 @@ fn get_eliminated_factors(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Inte
 
 fn main()
 {
-    let d: u32 = 10; // Choose number of digits
+    let args = Args::parse();
 
-    let constallation_pattern: Vec<u64> = vec![0, 4, 6, 10, 12, 16]; // Choose desired pattern
+    // Chosen or default settings
+    println!("Tuple Digits {}", args.digits);
+    println!("Primorial Number {}", args.m);
+    println!("Primorial Offset {}", args.o);
+    println!("Constellation Pattern {}", args.pattern);
+    println!("Prime Table Limit {}", args.tablelimit);
 
-    let m: u64 = 3; // Choose primorial number here
+    let d: u32 = args.digits; // Choose number of digits
 
-    let o: u64 = 97; // Choose offset here
+    let constellation_pattern = tools::get_pattern_vector(args.pattern); // Choose pattern here
 
-    let prime_table_limit = 2_000_000;
+    let m: u64 = args.m; // Choose primorial number here
+
+    let o: u64 = args.o; // Choose offset here
+
+    let prime_table_limit = args.tablelimit;
 
     let p_m = tools::get_primorial(m);
 
     let primes = tools::generate_primetable(prime_table_limit);
 
     let inverses = tools::get_primorial_inverses(&p_m, &primes);
-
-    let mut t_str = String::from("");
     
-    t_str = tools::get_difficulty_seed(d);
-
-    println!("difficulty seed: {}", t_str);
-
-    println!("Searching for Tuples with >= {} digits", d);
+    let t_str: String = tools::get_difficulty_seed(d);
 
     let t = Integer::from_str(&t_str).unwrap();
 
-    // wheel_factorization(&constallation_pattern, &t, &p_m, &Integer::from(o));
-
-    // efficient_wheel_factorization_hashset(&constallation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses);
-
-    efficient_wheel_factorization_sieve(&constallation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses, prime_table_limit);
+    efficient_wheel_factorization_sieve(&constellation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses, prime_table_limit);
 }
