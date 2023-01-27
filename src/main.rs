@@ -240,7 +240,7 @@ fn efficient_wheel_factorization_sieve(v: &Vec<u64>, t: &Integer, primorial: &In
 }
 
 
-fn efficient_wheel_factorization_bitvector(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64)
+fn efficient_wheel_factorization_bitvector(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
 {
     // Counters
     let mut primes_count = 0;
@@ -274,26 +274,52 @@ fn efficient_wheel_factorization_bitvector(v: &Vec<u64>, t: &Integer, primorial:
 
     let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
 
-    while i < f_max
+
+    let mut tuples: Vec<Integer> = Vec::new();
+
+
+    let mut i = 0;
+    for eliminated in sieve
     {
-        if !sieve.get(f).unwrap()
+        if !eliminated
         {
             // j = p_m * f + o + T2
-            let j: Integer = (primorial.mul(&Integer::from(f))).add(&t_prime_plus_offset).into();
+            let j: Integer = (primorial.mul(&Integer::from(i))).add(&t_prime_plus_offset).into();
 
             // Fermat Test on j
             if is_constellation(&j, &v)
             {
                 primes_count+=1;
+                tuples.push(j);
                 // println!("Found {}-tuple {}", v.len(), j);
             }
             primality_tests+=1;
         }
-        f+=1;
         i+=1;
     }
 
-    println!("Found {} primes, with {} primality tests, eliminated {}", primes_count, primality_tests, f_max - primality_tests);
+    // while i < f_max
+    // {
+    //     if !sieve.get(f).unwrap()
+    //     {
+    //         // j = p_m * f + o + T2
+    //         let j: Integer = (primorial.mul(&Integer::from(f))).add(&t_prime_plus_offset).into();
+
+    //         // Fermat Test on j
+    //         if is_constellation(&j, &v)
+    //         {
+    //             primes_count+=1;
+    //             // println!("Found {}-tuple {}", v.len(), j);
+    //         }
+    //         primality_tests+=1;
+    //     }
+    //     f+=1;
+    //     i+=1;
+    // }
+
+    println!("Found {} tuples, with {} primality tests, eliminated {}", primes_count, primality_tests, f_max - primality_tests);
+
+    tuples
 }
 
 
@@ -428,5 +454,8 @@ fn main()
 
     let t = Integer::from_str(&t_str).unwrap();
 
-    efficient_wheel_factorization_bitvector(&constellation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses, prime_table_limit);
+    let tuples = efficient_wheel_factorization_bitvector(&constellation_pattern, &t, &p_m, &Integer::from(o), &primes, &inverses, prime_table_limit);
+
+    tools::save_tuples(&tuples, &String::from("tuples.txt"));
+
 }

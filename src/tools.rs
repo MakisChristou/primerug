@@ -3,6 +3,8 @@ use std::ops::Mul;
 use rug::{Assign, Integer};
 use rand::{self, Rng}; // 0.8.0
 use bit_vec::BitVec;
+use std::fs::File;
+use std::io::Write;
 
 // Given the Target difficulty, choose a primorial
 pub fn choose_primorial_number(t: Integer) -> u16
@@ -198,7 +200,6 @@ pub fn get_difficulty_seed(d: u32) -> String
     t_str
 }
 
-
 pub fn get_pattern_vector(offsets: String) -> Vec<u64>
 {
     let offsets: String = offsets.chars().filter(|c| !c.is_whitespace()).collect();
@@ -213,4 +214,19 @@ pub fn get_pattern_vector(offsets: String) -> Vec<u64>
     }
 
     pattern_vector
+}
+
+
+pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String)
+{
+
+    let mut output = File::create(&tuple_file).unwrap();
+
+    for tuple in tuples
+    {
+        write!(output, "{}\n", tuple);
+    }
+
+    println!("Wrote {} tuples at {}", tuples.len(), &tuple_file);
+
 }
