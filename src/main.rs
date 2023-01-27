@@ -4,7 +4,7 @@ use std::ops::Add;
 use std::str::FromStr;
 use rug::{Assign, Integer};
 use std::collections::HashSet;
-use rand::{self, Rng}; // 0.8.0
+
 
 mod tools;
 mod constellation;
@@ -170,8 +170,6 @@ fn efficient_wheel_factorization_hashset(v: &Vec<u64>, t: &Integer, primorial: &
 
 
     println!("Found {} primes, with {} primality tests, eliminated {}", primes_count, primality_tests, eliminated_count);
-
-
 }
 
 
@@ -194,7 +192,12 @@ fn efficient_wheel_factorization_sieve(v: &Vec<u64>, t: &Integer, primorial: &In
 
     let sieve = get_eliminated_factors(primes, inverses, &t_prime, offset, v, prime_table_limit);
 
-    let f_max = 1000000u64;
+    println!("Sieve Size: {}", sieve.len());
+
+    let f_max = 10000000000u64; // Has to be lower than sieve size
+
+    // How do we handle this? What if we want to keep searching?
+    let f_max = sieve.len();
     
     let mut i = 0;
 
@@ -241,7 +244,6 @@ fn get_eliminated_factors(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Inte
     let mut sieve = Vec::new();
 
     sieve.resize(sieve_size as usize, false);
-
 
     let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
 
@@ -290,11 +292,11 @@ fn get_eliminated_factors(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Inte
 
 fn main()
 {
-    let D: u32 = 10; // Choose number of digits
+    let d: u32 = 10; // Choose number of digits
 
     let constallation_pattern: Vec<u64> = vec![0, 4, 6, 10, 12, 16]; // Choose desired pattern
 
-    let m: u64 = 3; // Choose primorial here
+    let m: u64 = 3; // Choose primorial number here
 
     let o: u64 = 97; // Choose offset here
 
@@ -304,22 +306,15 @@ fn main()
 
     let primes = tools::generate_primetable(prime_table_limit);
 
-    let inverses = tools::get_primorial_inverse(&p_m, &primes);
-
+    let inverses = tools::get_primorial_inverses(&p_m, &primes);
 
     let mut t_str = String::from("");
-    let mut rng = rand::thread_rng();
-
-    for i in (0..D)
-    {
-        let digit: u32 = rng.gen_range(1..9);
-        let s: String = digit.to_string();
-        t_str.push_str(&s);
-    }
+    
+    t_str = tools::get_difficulty_seed(d);
 
     println!("difficulty seed: {}", t_str);
 
-    println!("Searching for Tuples with >= {} digits", D);
+    println!("Searching for Tuples with >= {} digits", d);
 
     let t = Integer::from_str(&t_str).unwrap();
 

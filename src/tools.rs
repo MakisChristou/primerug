@@ -1,6 +1,7 @@
 use std::ops::MulAssign;
 use std::ops::Mul;
 use rug::{Assign, Integer};
+use rand::{self, Rng}; // 0.8.0
 
 use bitvec::prelude::*;
 
@@ -80,7 +81,7 @@ pub fn generate_primetable(prime_table_limit: u64) -> Vec<u64>
     prime_table
 }
 
-pub fn get_primorial_inverse(primorial: &Integer, v: &Vec<u64>) -> Vec<u64>
+pub fn get_primorial_inverses(primorial: &Integer, v: &Vec<u64>) -> Vec<u64>
 {
     let mut inverses = Vec::new();
 
@@ -140,4 +141,18 @@ pub fn sieve_of_eratosthenes(n: u64) -> Vec<u64>
         index+=1;
     }
     primes
+}
+
+pub fn get_difficulty_seed(d: u32) -> String
+{
+    let mut t_str = String::from("");
+    let mut rng = rand::thread_rng();
+
+    for i in (0..d)
+    {
+        let digit: u32 = rng.gen_range(1..9);
+        let s: String = digit.to_string();
+        t_str.push_str(&s);
+    }
+    t_str
 }
