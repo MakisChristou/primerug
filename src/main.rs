@@ -420,7 +420,7 @@ fn main()
 
     let p_m = tools::get_primorial(m);
 
-    let primes = tools::generate_primetable(prime_table_limit);
+    let primes = tools::generate_primetable_bitvector(prime_table_limit);
 
     let inverses = tools::get_primorial_inverses(&p_m, &primes);
     

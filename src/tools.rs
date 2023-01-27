@@ -2,8 +2,7 @@ use std::ops::MulAssign;
 use std::ops::Mul;
 use rug::{Assign, Integer};
 use rand::{self, Rng}; // 0.8.0
-
-use bitvec::prelude::*;
+use bit_vec::BitVec;
 
 // Given the Target difficulty, choose a primorial
 pub fn choose_primorial_number(t: Integer) -> u16
@@ -79,6 +78,48 @@ pub fn generate_primetable(prime_table_limit: u64) -> Vec<u64>
         i+=1;
     }
     prime_table
+}
+
+pub fn generate_primetable_bitvector(n: u64) -> Vec<u64>
+{
+    
+
+    if n < 2
+    {
+        return Vec::new();
+    }
+
+    let mut composite_table = BitVec::from_elem(n as usize, true);
+
+    let mut p = 2;
+
+    while p*p <= n
+    {
+        if composite_table[p as usize] == true
+        {
+            let mut i = p*p;
+
+            while i < n
+            { 
+                composite_table.set(i as usize,false);
+                i+=p;
+            }
+        }
+        p+=1;
+    }
+
+    let mut primes = Vec::new();
+
+    let mut index = 0;
+    for i in composite_table
+    {
+        if i && index > 1
+        {
+            primes.push(index);
+        }
+        index+=1;
+    }
+    primes
 }
 
 pub fn get_primorial_inverses(primorial: &Integer, v: &Vec<u64>) -> Vec<u64>
