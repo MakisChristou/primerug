@@ -1,6 +1,6 @@
 use clap::Parser;
 
-/// Simple program to greet a person
+/// A prime k-tuple finder based on the rug Rust crate.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -21,6 +21,6 @@ pub struct Args {
    pub pattern: String,
 
    /// Desired pattern
-   #[arg(short, long, default_value_t = 2_000_000)]
+   #[arg(short, long, default_value_t = 100_000)]
    pub tablelimit: u64,
 }

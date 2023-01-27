@@ -300,11 +300,11 @@ fn main()
     let args = Args::parse();
 
     // Chosen or default settings
-    println!("Tuple Digits {}", args.digits);
-    println!("Primorial Number {}", args.m);
-    println!("Primorial Offset {}", args.o);
-    println!("Constellation Pattern {}", args.pattern);
-    println!("Prime Table Limit {}", args.tablelimit);
+    println!("Tuple Digits: {}", args.digits);
+    println!("Primorial Number: {}", args.m);
+    println!("Primorial Offset: {}", args.o);
+    println!("Constellation Pattern: {}", args.pattern);
+    println!("Prime Table Limit: {}", args.tablelimit);
 
     let d: u32 = args.digits; // Choose number of digits
 
