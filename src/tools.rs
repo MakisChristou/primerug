@@ -198,15 +198,15 @@ pub fn get_difficulty_seed(d: u32) -> String
     t_str
 }
 
-pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String)
+pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usize)
 {
     let mut output = File::create(&tuple_file).unwrap();
 
     for tuple in tuples
     {
-        write!(output, "{}\n", tuple);
+        write!(output, "{}-tuple: {}\n", tuple_type, tuple);
     }
 
-    println!("Wrote {} tuples at {}", tuples.len(), &tuple_file);
+    // println!("Wrote {} tuples at {}", tuples.len(), &tuple_file);
 
 }

@@ -5,6 +5,11 @@ use std::str::FromStr;
 use rug::{Assign, Integer};
 use std::collections::HashSet;
 
+use pbr::ProgressBar;
+extern crate pbr;
+
+use pbr::ProgressBar as OtherProgressBar;
+
 use clap::Parser;
 use bit_vec::BitVec;
 
@@ -50,7 +55,7 @@ fn is_constellation(n: &Integer, v: &Vec<u64>) -> bool
     true
 }
 
-fn efficient_wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
+fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
 {
     // Counters
     let mut primes_count = 0;
@@ -65,7 +70,6 @@ fn efficient_wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer,
     println!("Candidates of the form: {} * f + {} + {}", primorial, offset, t_prime);
 
     let sieve = get_eliminated_factors(primes, inverses, &t_prime, offset, v, prime_table_limit);
-
 
     println!("Sieve Size: {} MB", sieve.len()/(8*1_000_000));
 
@@ -87,10 +91,27 @@ fn efficient_wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer,
 
     let mut tuples: Vec<Integer> = Vec::new();
 
+    let total = sieve.len();
 
     let mut i = 0;
+
+    let count = sieve.len();
+    let mut pb = ProgressBar::new(count as u64);
+    // pb.format("╢▌▌░╟");
+
+    // let bar = ProgressBar::new(count as u64);
+    
+
     for eliminated in sieve
     {
+        // pb.inc();
+
+        if i % 20000 == 0
+        {
+            // bar.inc(20000);
+            pb.add(20000);
+        }
+
         if !eliminated
         {
             // j = p_m * f + o + T2
@@ -100,32 +121,18 @@ fn efficient_wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer,
             if is_constellation(&j, &v)
             {
                 primes_count+=1;
+
+                // Save them as we go, just in case
+                tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
+
                 tuples.push(j);
-                // println!("Found {}-tuple {}", v.len(), j);
             }
             primality_tests+=1;
         }
         i+=1;
     }
 
-    // while i < f_max
-    // {
-    //     if !sieve.get(f).unwrap()
-    //     {
-    //         // j = p_m * f + o + T2
-    //         let j: Integer = (primorial.mul(&Integer::from(f))).add(&t_prime_plus_offset).into();
-
-    //         // Fermat Test on j
-    //         if is_constellation(&j, &v)
-    //         {
-    //             primes_count+=1;
-    //             // println!("Found {}-tuple {}", v.len(), j);
-    //         }
-    //         primality_tests+=1;
-    //     }
-    //     f+=1;
-    //     i+=1;
-    // }
+    pb.finish_print("");
 
     println!("Found {} tuples, with {} primality tests, eliminated {}", primes_count, primality_tests, f_max - primality_tests);
 
@@ -200,8 +207,8 @@ fn main()
 
     let t = Integer::from_str(&t_str).unwrap();
 
-    let tuples = efficient_wheel_factorization(&config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
+    let tuples = wheel_factorization(&config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
 
-    tools::save_tuples(&tuples, &String::from("tuples.txt"));
+    tools::save_tuples(&tuples, &String::from("tuples.txt"), &config.constellation_pattern.len());
 
 }
