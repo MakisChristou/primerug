@@ -199,7 +199,7 @@ fn main()
 
     let p_m = tools::get_primorial(config.m);
 
-    let primes = tools::generate_primetable_bitvector(config.prime_table_limit);
+    let primes = tools::generate_primetable_bitvector_half(config.prime_table_limit);
 
     let inverses = tools::get_primorial_inverses(&p_m, &primes);
     

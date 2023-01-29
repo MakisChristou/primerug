@@ -82,6 +82,7 @@ pub fn generate_primetable(prime_table_limit: u64) -> Vec<u64>
     prime_table
 }
 
+// Sieve of Eratosthenes using bitvector
 pub fn generate_primetable_bitvector(n: u64) -> Vec<u64>
 {
     if n < 2
@@ -122,6 +123,57 @@ pub fn generate_primetable_bitvector(n: u64) -> Vec<u64>
     primes
 }
 
+// Sieve of Eratosthenes using bitvector but excluding even numbers
+pub fn generate_primetable_bitvector_half(n: u64) -> Vec<u64>
+{
+    if n < 2
+    {
+        return Vec::new();
+    }
+
+    let mut composite_table = BitVec::from_elem((n>>1) as usize, true);
+
+    let mut p = 3;
+
+    while p*p <= n
+    { 
+        // (x-1)/2 maps from actual number to bitvec index
+        if composite_table[((p-1)>>1) as usize] == true
+        {
+            let mut i = p*p;
+
+            while i < n
+            {
+                // Skip evens as they don't exist in our Sieve
+                if (i) % 2 != 0
+                {
+                    // (x-1)/2 maps from actual number to bitvec index
+                    composite_table.set(((i-1)>>1) as usize,false);
+                }
+                i+=p;
+            }
+        }
+        p+=2;
+    }
+
+    let mut primes = Vec::new();
+
+    primes.push(2); // hardcode 2 as prime since we start from 3
+
+    let mut index = 0;
+    for i in composite_table
+    {
+        if i && index > 0
+        {   
+            // 2x+1 maps from bitvec index to actual number
+            primes.push((index<<1)+1);
+        }
+        index+=1;
+    }
+    primes
+}
+
+// Generate list of primorial inverses mod each prime in our prime table
 pub fn get_primorial_inverses(primorial: &Integer, v: &Vec<u64>) -> Vec<u64>
 {
     let mut inverses = Vec::new();
@@ -141,7 +193,7 @@ pub fn get_primorial_inverses(primorial: &Integer, v: &Vec<u64>) -> Vec<u64>
     return inverses;
 }
 
-// Memory inneficient but readable sieve of eratosthenis
+// Simple Sieve of Eratosthenes (not memory efficient)
 pub fn sieve_of_eratosthenes(n: u64) -> Vec<u64>
 {
     if n < 2
@@ -184,6 +236,7 @@ pub fn sieve_of_eratosthenes(n: u64) -> Vec<u64>
     primes
 }
 
+// Return a random number as a String with d digits
 pub fn get_difficulty_seed(d: u32) -> String
 {
     let mut t_str = String::from("");
@@ -198,6 +251,7 @@ pub fn get_difficulty_seed(d: u32) -> String
     t_str
 }
 
+// Save tuple vector in a text file
 pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usize)
 {
     let mut output = File::create(&tuple_file).unwrap();
@@ -206,7 +260,4 @@ pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usiz
     {
         write!(output, "{}-tuple: {}\n", tuple_type, tuple);
     }
-
-    // println!("Wrote {} tuples at {}", tuples.len(), &tuple_file);
-
 }
