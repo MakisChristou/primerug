@@ -3,12 +3,6 @@ use std::ops::Sub;
 use std::ops::Add;
 use std::str::FromStr;
 use rug::{Assign, Integer};
-use std::collections::HashSet;
-
-use pbr::ProgressBar;
-extern crate pbr;
-
-use pbr::ProgressBar as OtherProgressBar;
 
 use clap::Parser;
 use bit_vec::BitVec;
@@ -88,7 +82,7 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
 
 
-    for eliminated in sieve.iter().rev()
+    for eliminated in sieve
     {
         // Hardcode Stats interval for now
         if i % 200000 == 0
