@@ -18,9 +18,11 @@ mod tools;
 mod constellation;
 mod args;
 mod config;
+mod stats;
 
 use config::Config;
 use args::Args;
+use stats::Stats;
 
 // Based Fermat primality test
 fn fermat(n: &Integer) -> bool
@@ -35,22 +37,20 @@ fn fermat(n: &Integer) -> bool
     Integer::from(k) == Integer::from(1)
 }
 
-fn is_constellation(n: &Integer, v: &Vec<u64>) -> bool
+fn is_constellation(n: &Integer, v: &Vec<u64>, miner_stats: &mut Stats) -> bool
 {
-    let mut count = 0;
-    for i in v
+    // Check each pattern offset for primality
+    for (index, offset) in v.iter().enumerate()
     {
-        let c = n.add(i).into();
+        // n + offset
+        let c = n.add(offset).into();
 
         if !fermat(&c)
         {
-            // if count > v.len()-2
-            // {
-            //     println!("Found {}-tuple", v.len()-2)
-            // }
             return false;
         }
-        count += 1;
+        // Update Tuple Stats
+        miner_stats.tuple_counts[index]+=1;
     }
     true
 }
@@ -75,41 +75,30 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
     // How do we handle this? What if we want to keep searching?
     let f_max = sieve.len();
-    
-    let mut i = 0;
 
     println!("Primality Testing...");
 
-    // Start from T2 since Integer division works only if exact
-    // f = t2 / p_m
-    let mut f: Integer = t_prime.div_exact_ref(&primorial).into();
-
-    let mut f = 0;
+    let mut miner_stats = Stats::new(v.len());
 
     let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
 
-
     let mut tuples: Vec<Integer> = Vec::new();
-
-    let total = sieve.len();
 
     let mut i = 0;
 
-    let count = sieve.len();
-    let mut pb = ProgressBar::new(count as u64);
-    // pb.format("╢▌▌░╟");
 
-    // let bar = ProgressBar::new(count as u64);
-    
 
-    for eliminated in sieve
+    for eliminated in sieve.iter().rev()
     {
-        // pb.inc();
-
-        if i % 20000 == 0
+        // Hardcode Stats interval for now
+        if i % 200000 == 0
         {
-            // bar.inc(20000);
-            pb.add(20000);
+            println!("{}", miner_stats.get_human_readable_stats());
+            // if miner_stats.get_elapsed() > 0
+            // {
+            //     println!("tests/s: {}", (i)/miner_stats.get_elapsed());
+            // }
+            
         }
 
         if !eliminated
@@ -118,21 +107,19 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
             let j: Integer = (primorial.mul(&Integer::from(i))).add(&t_prime_plus_offset).into();
 
             // Fermat Test on j
-            if is_constellation(&j, &v)
+            if is_constellation(&j, &v, &mut miner_stats)
             {
                 primes_count+=1;
 
+                tuples.push(j);
+
                 // Save them as we go, just in case
                 tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
-
-                tuples.push(j);
             }
             primality_tests+=1;
         }
         i+=1;
     }
-
-    pb.finish_print("");
 
     println!("Found {} tuples, with {} primality tests, eliminated {}", primes_count, primality_tests, f_max - primality_tests);
 
@@ -141,7 +128,7 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
 fn get_eliminated_factors(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> BitVec
 {
-    let k_max = 1000;
+    let k_max = 10;
 
     let sieve_size = prime_table_limit +  prime_table_limit * k_max; // This has to be the same as prime_table limit * k_max
 

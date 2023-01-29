@@ -6,6 +6,7 @@ use bit_vec::BitVec;
 use std::fs::File;
 use std::io::Write;
 
+
 // Given the Target difficulty, choose a primorial
 pub fn choose_primorial_number(t: Integer) -> u16
 {
@@ -261,3 +262,5 @@ pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usiz
         write!(output, "{}-tuple: {}\n", tuple_type, tuple);
     }
 }
+
+
