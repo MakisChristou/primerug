@@ -58,6 +58,8 @@ inline bool is_constellation(const mpz_class& n, const std::vector<uint64_t>& v,
 
     int index = 0;
 
+    miner_stats._tuple_counts[0]++;
+
     for(auto& offset : v)
     {
         // f = candidate + offset
@@ -70,7 +72,8 @@ inline bool is_constellation(const mpz_class& n, const std::vector<uint64_t>& v,
         }
 
         // Update Tuple Stats
-        miner_stats._tuple_counts[index]++;
+        // index+1 because we don't update the candidates
+        miner_stats._tuple_counts[index+1]++;
         index++;
     }
     return true;
@@ -131,7 +134,7 @@ std::vector<uint8_t> get_eliminated_factors(const std::vector<uint64_t>& primes,
 std::vector<uint8_t> get_eliminated_factors_working(const std::vector<uint64_t>& primes, const std::vector<uint64_t>& inverses,const mpz_class& t_prime, const mpz_class& offset, const std::vector<uint64_t>& v, uint64_t prime_table_limit)
 {
 
-    uint64_t k_max = 10;
+    uint64_t k_max = 5000;
 
     uint64_t sieve_size = prime_table_limit + prime_table_limit + k_max;
 
@@ -263,7 +266,6 @@ void wheel_factorization(const std::vector<uint64_t>& v, mpz_class& t, const mpz
 
     std::cout << "Found " << primes_count << " tuples, with " << primality_tests << " primality tests, eliminated " << f_max - primality_tests << std::endl; 
 }
-
 
 void bruteforce(const std::vector<uint64_t>& v, mpz_class& t, const mpz_class& primorial, const mpz_class& offset, const std::vector<uint64_t>& primes, const std::vector<uint64_t>& inverses, uint64_t prime_table_limit)
 {   

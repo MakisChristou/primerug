@@ -18,7 +18,7 @@ class Stats
     Stats(uint64_t pattern_size)
     {
         _pattern_size = pattern_size;
-        _tuple_counts.resize(pattern_size, 0);
+        _tuple_counts.resize(pattern_size+1, 0);
         _duration = std::chrono::system_clock::now();
     }
 
