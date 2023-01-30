@@ -35,6 +35,9 @@ fn fermat(n: &Integer) -> bool
 #[inline(always)]
 fn is_constellation(n: &Integer, v: &Vec<u64>, miner_stats: &mut Stats) -> bool
 {
+
+    miner_stats.tuple_counts[0]+=1;
+
     // Check each pattern offset for primality
     for (index, offset) in v.iter().enumerate()
     {
@@ -46,7 +49,8 @@ fn is_constellation(n: &Integer, v: &Vec<u64>, miner_stats: &mut Stats) -> bool
             return false;
         }
         // Update Tuple Stats
-        miner_stats.tuple_counts[index]+=1;
+        // index+1 because we don't update the candidates
+        miner_stats.tuple_counts[index+1]+=1;
     }
     true
 }

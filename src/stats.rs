@@ -13,7 +13,7 @@ impl Stats
     pub fn new(pattern_size: usize) -> Stats
     {
         let mut tuple_counts = Vec::new();
-        tuple_counts.resize(pattern_size, 0);
+        tuple_counts.resize(pattern_size+1, 0);
 
         Stats
         {
