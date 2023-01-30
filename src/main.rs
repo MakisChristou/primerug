@@ -18,19 +18,21 @@ use config::Config;
 use args::Args;
 use stats::Stats;
 
-// Based Fermat primality test
+#[inline(always)]
+// Fermat primality test
 fn fermat(n: &Integer) -> bool
 {
     let a = Integer::from(2);
     let n_minus_one = n.sub(Integer::from(1));
 
     // a = a^(n-1) % n
-    let k = a.pow_mod(&n_minus_one, &n).unwrap();
+    let a = a.pow_mod(&n_minus_one, &n).unwrap();
 
     // a == 1?
-    Integer::from(k) == Integer::from(1)
+    a == 1
 }
 
+#[inline(always)]
 fn is_constellation(n: &Integer, v: &Vec<u64>, miner_stats: &mut Stats) -> bool
 {
     // Check each pattern offset for primality
@@ -55,17 +57,26 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
     let mut primes_count = 0;
     let mut primality_tests = 0;
 
-    // T2 = T + p_m - (T % p_m)$
-    let t_prime: Integer = t.add(primorial).into();
-    let ret: Integer = t.clone() % primorial;
-    let t_prime: Integer = t_prime.sub(ret).into();
+    // T2 = T + p_m - (T % p_m)
+    let t_prime: Integer = (t + primorial).into();
+    let ret: Integer = (t.clone() % (primorial)).into();
+    let t_prime: Integer = (t_prime - ret.clone()).into();
+
+
+    // Add check that primorial < t
+    if primorial >= t
+    {
+        println!("Pick Smaller primorial number");
+        return Vec::new();
+    }
 
     // println!("Candidates of the form: p_m * f + o + T2");
     println!("Candidates of the form: {} * f + {} + {}", primorial, offset, t_prime);
 
-    let sieve = get_eliminated_factors(primes, inverses, &t_prime, offset, v, prime_table_limit);
+    let sieve = get_eliminated_factors_fast_as_fuck_boy(primes, inverses, &t_prime, offset, v, prime_table_limit);
 
-    println!("Sieve Size: {} MB", sieve.len()/(8*1_000_000));
+    println!("sieve.len() = {}", sieve.len());
+    println!("Sieve Size: {} MB", sieve.len()/(1_000_000));
 
     // How do we handle this? What if we want to keep searching?
     let f_max = sieve.len();
@@ -80,22 +91,18 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
     let mut i = 0;
 
-
-
-    for eliminated in sieve
+    for (index, count) in sieve.iter().enumerate()
     {
+        
+        let eliminated = get_bit(&sieve, index as u64);
+
         // Hardcode Stats interval for now
-        if i % 200000 == 0
+        if i % 1000000 == 0
         {
-            println!("{}", miner_stats.get_human_readable_stats());
-            // if miner_stats.get_elapsed() > 0
-            // {
-            //     println!("tests/s: {}", (i)/miner_stats.get_elapsed());
-            // }
-            
+            println!("{}", miner_stats.get_human_readable_stats());            
         }
 
-        if !eliminated
+        if eliminated != 1
         {
             // j = p_m * f + o + T2
             let j: Integer = (primorial.mul(&Integer::from(i))).add(&t_prime_plus_offset).into();
@@ -118,6 +125,149 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
     println!("Found {} tuples, with {} primality tests, eliminated {}", primes_count, primality_tests, f_max - primality_tests);
 
     tuples
+    
+
+}
+
+
+fn get_eliminated_factors_boolset(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<bool>
+{
+    let k_max = 1000;
+
+    let sieve_size = prime_table_limit +  prime_table_limit * k_max; // This has to be the same as prime_table limit * k_max
+
+    let mut sieve = Vec::new();
+
+    sieve.resize(sieve_size as usize, false);
+
+    let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
+
+    println!("Sieving...");
+
+    let mut i = 0;
+    for p in primes
+    {   
+        // Don't panic (I am sure there is a better way to do this)
+        if *p != 0
+        {
+            for c_i in v
+            {
+                // (T2 + o + c_i)
+                let t_prime_plus_offset_plus_c_i: Integer = (&t_prime_plus_offset).add(c_i).into();
+
+                // ((T2 + o + c_i) % p)
+                let r = t_prime_plus_offset_plus_c_i.mod_u((*p).try_into().unwrap());
+
+                // f_p = ((p - ((T2 + o + c_i) % p))*p_m_inverse) % p
+                let mut f_p = ((p- (r as u64) ) * inverses[i]) % p;
+                // eliminated_factors.insert(Integer::from(f_p));
+
+                // println!("Eliminated {}", f_p);
+                // How unsafe can you be
+                sieve[f_p as usize] = true;
+
+                // eliminated_count+=1;
+                
+                // Sieve out multiples of f_p
+                for k in 0..k_max
+                {
+                    f_p += p;
+                    sieve[f_p as usize] = true;
+                    // eliminated_factors.insert(Integer::from(f_p));
+                    // eliminated_count+=1;
+                }
+            }
+            i+=1;
+        }
+    }
+
+    sieve
+}
+
+#[inline(always)]
+fn get_bit(sieve: &Vec<u8>, i: u64) -> u8
+{
+    // Find which byte this bit is on
+    let byte = i>>3;
+
+    // Find the bit's position whithin the byte
+    let position = i%8;
+
+    // Shift left so value becomes LSB
+    let shifted = sieve[byte as usize]>>(8-position);
+
+    // Ignore/Mask higher values
+    let value = shifted & 0x1;
+
+    return value;
+}
+
+#[inline(always)]
+fn set_bit(sieve: &mut Vec<u8>, i: u64, value: u8)
+{
+    // Find which byte this bit is on
+    let byte = i>>3;
+
+    // Find the bit's position whithin the byte
+    let position = i%8;
+
+    // Mask value's upper bits
+    let value = value & 0x1; //0x00000001
+
+    // Align bit with position
+    let value = value <<(8-position); // 0x00010000
+
+    // Set bit
+    sieve[byte as usize] |= value;
+}
+
+fn get_eliminated_factors_fast_as_fuck_boy(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<u8>
+{
+    let k_max = 10;
+
+    let sieve_size = prime_table_limit +  prime_table_limit * k_max; // This has to be the same as prime_table limit * k_max
+
+    let mut sieve = Vec::new();
+
+    sieve.resize((((sieve_size/8)+1) as usize).try_into().unwrap(), 0);
+
+    let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
+
+    println!("Sieving...");
+
+    let mut i = 0;
+    for p in primes
+    {   
+        // Don't panic (I am sure there is a better way to do this)
+        if *p != 0
+        {
+            for c_i in v
+            {
+                // (T2 + o + c_i)
+                let t_prime_plus_offset_plus_c_i: Integer = (&t_prime_plus_offset).add(c_i).into();
+
+                // ((T2 + o + c_i) % p)
+                let r = t_prime_plus_offset_plus_c_i.mod_u((*p).try_into().unwrap());
+
+                // f_p = ((p - ((T2 + o + c_i) % p))*p_m_inverse) % p
+                let mut f_p = ((p- (r as u64) ) * inverses[i]) % p;
+
+                set_bit(&mut sieve, f_p, 1);
+                // sieve[f_p as usize] = 1;
+
+                
+                // Sieve out multiples of f_p
+                for k in 0..k_max
+                {
+                    f_p += p;
+                    // sieve[f_p as usize] = 1;
+                    set_bit(&mut sieve, f_p, 1);
+                }
+            }
+            i+=1;
+        }
+    }
+    sieve
 }
 
 fn get_eliminated_factors(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> BitVec

@@ -23,16 +23,6 @@ impl Stats
         }
     }
 
-    pub fn increment(tuple_counts: &Vec<u64>)
-    {
-
-    }
-
-    pub fn formatted_stats() -> String
-    {   
-        String::new()
-    }
-
     fn cps(&self) -> u64
     {
         let elapsed: u64 = self.duration.elapsed().as_secs();
@@ -97,15 +87,15 @@ impl Stats
 
         if eta_in_seconds < 60
         {
-            return String::from(format!("eta: {} s", eta_in_seconds/60));
+            return String::from(format!("eta: {} s", eta_in_seconds));
         }
         else if eta_in_seconds < 3600
         {
-            return String::from(format!("eta: {} min", eta_in_seconds/3600));
+            return String::from(format!("eta: {} min", eta_in_seconds/60));
         }
         else if eta_in_seconds < 86400
         {
-            return String::from(format!("eta: {} h", eta_in_seconds/86400));
+            return String::from(format!("eta: {} h", eta_in_seconds/3600));
         }
         else if eta_in_seconds < 31556952
         {
