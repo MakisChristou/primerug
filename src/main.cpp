@@ -134,7 +134,7 @@ std::vector<uint8_t> get_eliminated_factors(const std::vector<uint64_t>& primes,
 std::vector<uint8_t> get_eliminated_factors_working(const std::vector<uint64_t>& primes, const std::vector<uint64_t>& inverses,const mpz_class& t_prime, const mpz_class& offset, const std::vector<uint64_t>& v, uint64_t prime_table_limit)
 {
 
-    uint64_t k_max = 5000;
+    uint64_t k_max = 1000;
 
     uint64_t sieve_size = prime_table_limit + prime_table_limit + k_max;
 
@@ -309,6 +309,9 @@ int main(int argc, char** argv)
     uint64_t m = 58;
     uint64_t offset = 600598127;
     std::vector<uint64_t> constellation_pattern{0, 2, 6, 8, 12, 18, 20, 26};
+    uint64_t d = 100;
+
+    Config config = Config(d, "0, 2, 6, 8, 12, 18, 20, 26", m, offset, prime_table_limit);
 
     mpz_class p_m = tools::get_primorial(m);
 
@@ -317,6 +320,10 @@ int main(int argc, char** argv)
     std::vector<uint64_t> inverses = tools::get_primorial_inverses(p_m, primes);
 
     std::string t_str = "35382514261572877775443718275127654368455742689370898970579333127222089440767840029778961849392487105286882749492874572975965526331001174046077835955";
+
+    t_str = tools::get_difficulty_seed(150);
+
+    std::cout << "Difficulty Seed: " << t_str << std::endl;
 
     mpz_class t(t_str);
 

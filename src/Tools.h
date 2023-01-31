@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <iostream>
+#include <random>
 #include <gmpxx.h>
 
 namespace tools
@@ -61,7 +62,21 @@ namespace tools
 
     std::string get_difficulty_seed(uint32_t d)
     {
+        std::random_device rd;
+        std::default_random_engine generator(rd());
+        std::uniform_int_distribution<int> distribution(1,9);
+        unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+        generator.seed(seed);
 
+        std::string t_str;
+
+        for(int i = 0; i < d; i++)
+        {
+            int dice_roll = distribution(generator);  // generates number in the range 1..9
+
+            t_str+=std::to_string(dice_roll);
+        }
+        return t_str;
     }
 
     void save_tuples(const std::vector<mpz_class>& tuples, const std::string& tuple_file, uint64_t tuple_type)
