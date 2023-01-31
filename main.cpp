@@ -31,7 +31,6 @@ inline uint8_t get_bit(const std::vector<uint8_t>& sieve, uint64_t i)
     uint8_t value = shifted & 0x1;
 
     return value;
-
 }
 
 inline void set_bit(std::vector<uint8_t>& sieve, uint64_t i, uint8_t value)
@@ -81,11 +80,11 @@ inline bool is_constellation(const mpz_class& n, const std::vector<uint64_t>& v,
 
 std::vector<uint8_t> get_eliminated_factors(const std::vector<uint64_t>& primes, const std::vector<uint64_t>& inverses,const mpz_class& t_prime, const mpz_class& offset, const std::vector<uint64_t>& v, uint64_t prime_table_limit)
 {
-    uint64_t k_max = 1000;
+    uint64_t k_max = 10;
 
-    uint64_t sieve_size = prime_table_limit;// + prime_table_limit + k_max;
+    uint64_t sieve_size = prime_table_limit + prime_table_limit * k_max;
 
-    std::vector<uint8_t> sieve((sieve_size)+1, 0);
+    std::vector<uint8_t> sieve((sieve_size/8)+1, 0);
 
 
     mpz_class t_prime_plus_offset;
@@ -117,11 +116,11 @@ std::vector<uint8_t> get_eliminated_factors(const std::vector<uint64_t>& primes,
                 set_bit(sieve, f_p, 1);
 
                 // Sieve out multiples of f_p
-                // for(int k = 0; k<k_max; k++)
-                // {
-                //     f_p+=p;
-                //     set_bit(sieve, f_p, 1);
-                // }
+                for(int k = 0; k<k_max; k++)
+                {
+                    f_p+=p;
+                    set_bit(sieve, f_p, 1);
+                }
             }
         }
         i++;
@@ -133,12 +132,11 @@ std::vector<uint8_t> get_eliminated_factors(const std::vector<uint64_t>& primes,
 std::vector<uint8_t> get_eliminated_factors_working(const std::vector<uint64_t>& primes, const std::vector<uint64_t>& inverses,const mpz_class& t_prime, const mpz_class& offset, const std::vector<uint64_t>& v, uint64_t prime_table_limit)
 {
 
-    uint64_t k_max = 1000;
+    uint64_t k_max = 10;
 
-    uint64_t sieve_size = prime_table_limit + prime_table_limit + k_max;
+    uint64_t sieve_size = prime_table_limit + prime_table_limit * k_max;
 
     std::vector<uint8_t> sieve(sieve_size+1, 0);
-
 
     mpz_class t_prime_plus_offset;
     mpz_add(t_prime_plus_offset.get_mpz_t(), t_prime.get_mpz_t(), offset.get_mpz_t());
@@ -171,12 +169,12 @@ std::vector<uint8_t> get_eliminated_factors_working(const std::vector<uint64_t>&
                 sieve[f_p] = 1;
 
                 // Sieve out multiples of f_p
-                // for(int k = 0; k<k_max; k++)
-                // {
-                //     // f_p+=p;
-                //     // set_bit(sieve, f_p, 1);
-                //     // sieve[f_p] = 1;
-                // }
+                for(int k = 0; k<k_max; k++)
+                {
+                    f_p+=p;
+                    // set_bit(sieve, f_p, 1);
+                    sieve[f_p] = 1;
+                }
             }
         }
         i++;
@@ -390,6 +388,7 @@ int main(int argc, char** argv)
     std::vector<uint64_t> constellation_pattern{0, 2, 6, 8, 12, 18, 20, 26};
     uint64_t d = 150;
 
+    // Unused config object
     Config config = Config(d, "0, 2, 6, 8, 12, 18, 20, 26", m, offset, prime_table_limit);
 
     mpz_class p_m = tools::get_primorial(m);
@@ -404,7 +403,9 @@ int main(int argc, char** argv)
 
     mpz_class t(t_str);
 
-    // wheel_factorization(constellation_pattern, t, p_m, offset, primes, inverses, prime_table_limit);
+    wheel_factorization(constellation_pattern, t, p_m, offset, primes, inverses, prime_table_limit);
 
-    wheel_factorization_working(constellation_pattern, t, p_m, offset, primes, inverses, prime_table_limit);
+    // wheel_factorization_working(constellation_pattern, t, p_m, offset, primes, inverses, prime_table_limit);
+
+    return 0;
 }
