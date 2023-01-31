@@ -1,15 +1,16 @@
 #------------------------------------------------------------------------------
-SOURCE=./src/main.cpp
+SOURCE=main.cpp
 MYPROGRAM=primerug
 LIBS=-lgmp
 CC=g++
 
 #------------------------------------------------------------------------------
 
-all: $(MYPROGRAM)
+all: main
 
-$(MYPROGRAM): $(SOURCE)
-	$(CC) -O3 $(SOURCE) -o $(MYPROGRAM) $(LIBS)
+
+main: main.cpp Config.h Stats.h Tools.h
+	$(CC) -O3 -o $(MYPROGRAM) $^ $(LIBS)
 
 clean:
-	rm -f $(MYPROGRAM) tuples.txt
+	rm -f $(MYPROGRAM) *.o tuples.txt *.gch

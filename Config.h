@@ -1,7 +1,10 @@
 #ifndef INCLUDE_GUARD_CONFIG
 #define INCLUDE_GUARD_CONFIG
 
-
+#include <vector>
+#include <iostream>
+#include <sstream>
+#include <algorithm>
 
 class Config
 {
@@ -24,7 +27,7 @@ class Config
 
     std::vector<uint64_t> get_pattern_vector(std::string offsets)
     {
-        offsets.erase(remove(offsets.begin(),offsets.end(),' '),offsets.end());
+        offsets.erase(std::remove_if(offsets.begin(), offsets.end(), isspace), offsets.end());
 
         // Vector of string to save tokens
         std::vector <std::uint64_t> tokens;

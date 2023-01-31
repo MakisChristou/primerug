@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <iostream>
+#include <chrono>
 #include <random>
 #include <gmpxx.h>
 
