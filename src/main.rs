@@ -3,7 +3,7 @@ use std::ops::Sub;
 use std::ops::Add;
 use std::str::FromStr;
 use rug::{Assign, Integer};
-
+use pbr::ProgressBar;
 use clap::Parser;
 use bit_vec::BitVec;
 
@@ -77,10 +77,10 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
     // println!("Candidates of the form: p_m * f + o + T2");
     println!("Candidates of the form: {} * f + {} + {}", primorial, offset, t_prime);
 
-    let sieve = get_eliminated_factors_fast_as_fuck_boy(primes, inverses, &t_prime, offset, v, prime_table_limit);
+    let sieve = get_eliminated_factors_bitwise(primes, inverses, &t_prime, offset, v, prime_table_limit);
 
     println!("sieve.len() = {}", sieve.len());
-    println!("Sieve Size: {} MB", sieve.len()/(1_000_000));
+    println!("Sieve Size: {} MB", sieve.len()/(8*1_000_000));
 
     // How do we handle this? What if we want to keep searching?
     let f_max = sieve.len();
@@ -97,7 +97,6 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
     for (index, count) in sieve.iter().enumerate()
     {
-        
         let eliminated = get_bit(&sieve, index as u64);
 
         // Hardcode Stats interval for now
@@ -136,7 +135,7 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
 fn get_eliminated_factors_boolset(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<bool>
 {
-    let k_max = 1000;
+    let k_max = 8000;
 
     let sieve_size = prime_table_limit +  prime_table_limit * k_max; // This has to be the same as prime_table limit * k_max
 
@@ -225,9 +224,9 @@ fn set_bit(sieve: &mut Vec<u8>, i: u64, value: u8)
     sieve[byte as usize] |= value;
 }
 
-fn get_eliminated_factors_fast_as_fuck_boy(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<u8>
+fn get_eliminated_factors_bitwise(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<u8>
 {
-    let k_max = 10;
+    let k_max = 1_000;
 
     let sieve_size = prime_table_limit +  prime_table_limit * k_max; // This has to be the same as prime_table limit * k_max
 
@@ -239,9 +238,19 @@ fn get_eliminated_factors_fast_as_fuck_boy(primes: &Vec<u64>, inverses: &Vec<u64
 
     println!("Sieving...");
 
+    let total = primes.len() * v.len() * k_max as usize;
+    let mut pb = ProgressBar::new(total as u64);
+
+
     let mut i = 0;
     for p in primes
     {   
+
+        if i % 1000 == 0
+        {
+            pb.add(1000*8*1000);
+        }
+
         // Don't panic (I am sure there is a better way to do this)
         if *p != 0
         {
@@ -256,15 +265,13 @@ fn get_eliminated_factors_fast_as_fuck_boy(primes: &Vec<u64>, inverses: &Vec<u64
                 // f_p = ((p - ((T2 + o + c_i) % p))*p_m_inverse) % p
                 let mut f_p = ((p- (r as u64) ) * inverses[i]) % p;
 
+                // Sieve out f_p
                 set_bit(&mut sieve, f_p, 1);
-                // sieve[f_p as usize] = 1;
 
-                
                 // Sieve out multiples of f_p
                 for k in 0..k_max
                 {
                     f_p += p;
-                    // sieve[f_p as usize] = 1;
                     set_bit(&mut sieve, f_p, 1);
                 }
             }
@@ -303,7 +310,7 @@ fn get_eliminated_factors(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Inte
                 // f_p = ((p - ((T2 + o + c_i) % p))*p_m_inverse) % p
                 let mut f_p = ((p- (r as u64) ) * inverses[i]) % p;
 
-
+                // Sieve out f_p
                 sieve.set(f_p as usize,true);
                 
                 // Sieve out multiples of f_p
