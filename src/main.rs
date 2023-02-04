@@ -6,6 +6,7 @@ use rug::{Assign, Integer};
 use pbr::ProgressBar;
 use clap::Parser;
 use bit_vec::BitVec;
+use std::process;
 
 // My own stuff
 mod tools;
@@ -129,7 +130,7 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
 }
 
-fn wheel_factorization_rieminer(m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
+fn wheel_factorization_rieminer(miner_stats: &mut Stats, i: &mut usize , m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
 {
     // Counters
     let mut primes_count = 0;
@@ -151,26 +152,24 @@ fn wheel_factorization_rieminer(m: &u64, v: &Vec<u64>, t: &Integer, primorial: &
     if primorial >= t
     {
         println!("Pick Smaller primorial number");
-        return Vec::new();
+        process::exit(0x0);
     }
 
     // println!("Candidates of the form: p_m * f + o + T2");
-    println!("Candidates of the form: {} * f + {} + {}", primorial, offset, t_prime);
+    // println!("Candidates of the form: {} * f + {} + {}", primorial, offset, t_prime);
 
     let factors_table: Vec<u64> = get_eliminated_factors_rieminer(m, primes, inverses, &t_prime, offset, v, prime_table_limit);
 
-    println!("sieve.len() = {}", factors_table.len());
-    println!("Sieve Size: {} MB", factors_table.len()/(1_000_000));
+    // println!("sieve.len() = {}", factors_table.len());
+    // println!("Sieve Size: {} MB", factors_table.len()/(1_000_000));
 
-    println!("Primality Testing...");
+    // println!("Primality Testing...");
 
-    let mut miner_stats = Stats::new(v.len());
+    
 
     let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
 
     let mut tuples: Vec<Integer> = Vec::new();
-
-    let mut i = 0;
 
     let mut factor_offsets: Vec<u64> = Vec::new();
 
@@ -199,34 +198,30 @@ fn wheel_factorization_rieminer(m: &u64, v: &Vec<u64>, t: &Integer, primorial: &
     {
 
         // Hardcode Stats interval for now
-        if i % 1000 == 0
+        if *i % 1000 == 0
         {
             println!("{}", miner_stats.get_human_readable_stats());            
         }
 
-        // T = p_m * f + o + T2
-        let T: Integer = (primorial.mul(&Integer::from(f))).add(&t_prime_plus_offset).into();
+        // t = p_m * f + o + T2
+        let t: Integer = (primorial.mul(&Integer::from(f))).add(&t_prime_plus_offset).into();
 
         // Fermat Test on j
-        if is_constellation(&T, &v, &mut miner_stats)
+        if is_constellation(&t, &v, miner_stats)
         {
             primes_count+=1;
 
-            tuples.push(T);
+            println!("Found: {}", t);
+
+            tuples.push(t);
 
             // Save them as we go, just in case
             tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
         }
-        primality_tests+=1;
         
-        i+=1;
+        *i+=1;
     }
-
-    println!("Found {} tuples, with {} primality tests", primes_count, primality_tests);
-
     tuples
-    
-
 }
 
 fn get_eliminated_factors_boolset(primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<bool>
@@ -445,9 +440,12 @@ fn get_half_pattern(v: &Vec<u64>) -> Vec<u64>
 {
     let mut half_pattern = Vec::new();
 
-    for o in v
+    half_pattern.push(0);
+
+    for i in 0..v.len()-1
     {
-        half_pattern.push(o/2);
+        let distanse = v[i+1] - v[i];
+        half_pattern.push(distanse/2);
     }
     half_pattern
 }
@@ -511,7 +509,7 @@ fn end_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>)
 // Ported code from Pttn, wish I knew why it works
 fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<u64>
 {
-    let half_pattern = vec![0, 1, 2, 1, 2, 3, 1, 3];
+    let half_pattern = get_half_pattern(v);
 
     let sieve_bits = 25;
 
@@ -520,7 +518,7 @@ fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u6
     let sieve_words: usize = sieve_size/64;
 
     let mut factors_to_eliminate: Vec<u32> = Vec::new();
-    factors_to_eliminate.resize(sieve_size, 0);
+    factors_to_eliminate.resize(v.len() * primes.len() , 0);
 
     let mut factors_table: Vec<u64> = Vec::new();
     factors_table.resize(sieve_words, 0);
@@ -528,7 +526,7 @@ fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u6
     // first_candidate = T2 + o
     let first_candidate: Integer = (&t_prime).add(offset).into();
 
-    println!("Sieving...");
+    // println!("Sieving...");
 
     let tuple_size = v.len();
 
@@ -537,7 +535,7 @@ fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u6
     for p in primes
     {
         // Don't panic (I am sure there is a better way to do this)
-        if i >= 58//(*m as usize)
+        if i >= (*m as usize)
         {
             // Calculate multiplicative inverse data
             let mi: Vec<u64> = get_mi(&inverses, p, i);
@@ -576,7 +574,7 @@ fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u6
     // Process Sieve
     for p in primes
     {
-        if i >= 58 //(*m) as usize
+        if i >= (*m) as usize
         {
             for f in 0..tuple_size
             {
@@ -607,16 +605,18 @@ fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u6
 
 fn main()
 {
-    // let args = Args::parse();
+    let args = Args::parse();
 
-    // // Chosen or default settings
-    // println!("Tuple Digits: {}", args.digits);
-    // println!("Primorial Number: {}", args.m);
-    // println!("Primorial Offset: {}", args.o);
-    // println!("Constellation Pattern: {}", args.pattern);
-    // println!("Prime Table Limit: {}", args.tablelimit);
+    // Chosen or default settings
+    println!("Tuple Digits: {}", args.digits);
+    println!("Primorial Number: {}", args.m);
+    println!("Primorial Offset: {}", args.o);
+    println!("Constellation Pattern: {}", args.pattern);
+    println!("Prime Table Limit: {}", args.tablelimit);
 
-    let config = Config::new(150, String::from("0, 2, 6, 8, 12, 18, 20, 26"), 58, 114023297140211, 7275957);
+    // let config = Config::new(150, String::from("0, 2, 6, 8, 12, 18, 20, 26"), 58, 114023297140211, 7275957);
+
+    let config = Config::new(args.digits, args.pattern, args.m, args.o, args.tablelimit);
 
     let p_m = tools::get_primorial(config.m);
 
@@ -624,14 +624,21 @@ fn main()
 
     let inverses = tools::get_primorial_inverses(&p_m, &primes);
     
-    let t_str: String = tools::get_difficulty_seed(config.d);
+    let mut i = 0;
 
-    // let t_str = "3273412171516220840604824288938609004407161063577870924414666015270377105916218909454019234932253932320783565146848167748502085335907822310732880412672";
+    let mut miner_stats = Stats::new(config.constellation_pattern.len());
 
-    let t = Integer::from_str(&t_str).unwrap();
+    loop
+    {
+        let t_str: String = tools::get_difficulty_seed(config.d);
 
-    let tuples = wheel_factorization_rieminer(&58, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
+        let t = Integer::from_str(&t_str).unwrap();
 
-    tools::save_tuples(&tuples, &String::from("tuples.txt"), &config.constellation_pattern.len());
+        wheel_factorization_rieminer(&mut miner_stats, &mut i, &args.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
+    }
+
+    
+
+    
 
 }
