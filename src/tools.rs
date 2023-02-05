@@ -5,7 +5,7 @@ use rand::{self, Rng}; // 0.8.0
 use bit_vec::BitVec;
 use std::fs::File;
 use std::io::Write;
-
+use std::fs::OpenOptions;
 
 // Given the Target difficulty, choose a primorial
 pub fn choose_primorial_number(t: Integer) -> u16
@@ -255,11 +255,14 @@ pub fn get_difficulty_seed(d: u32) -> String
 // Save tuple vector in a text file
 pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usize)
 {
-    let mut output = File::create(&tuple_file).unwrap();
+    // let mut output = File::create(&tuple_file).unwrap();
+
+    let mut file = OpenOptions::new().write(true).append(true).open(tuple_file).unwrap();
+
 
     for tuple in tuples
     {
-        write!(output, "{}-tuple: {}\n", tuple_type, tuple);
+        write!(file, "{}-tuple: {}\n", tuple_type, tuple);
     }
 }
 

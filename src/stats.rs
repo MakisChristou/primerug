@@ -68,12 +68,21 @@ impl Stats
 
     pub fn get_human_readable_stats(&self) -> String
     {
-        let mut s = format!("c/s: {} , r: {:.2}",self.cps(), self.r());
+        let mut s = format!("c/s: {}, r: {:.2} (",self.cps(), self.r());
 
         // for (index, offset) in v.iter().enumerate()
         for (index, count) in self.tuple_counts.iter().enumerate()
         {
-            s.push_str(&format!("{}, ", count));
+            if index == self.tuple_counts.len() -1
+            {
+                s.push_str(&format!("{}) ", count));
+            }
+            else if index > 0
+            {
+                s.push_str(&format!("{}, ", count));
+            }
+
+
         }
 
         s.push_str(&self.get_human_readable_eta());

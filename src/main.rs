@@ -198,7 +198,7 @@ fn wheel_factorization_rieminer(miner_stats: &mut Stats, i: &mut usize , m: &u64
     {
 
         // Hardcode Stats interval for now
-        if *i % 1000 == 0
+        if *i % 10000 == 0
         {
             println!("{}", miner_stats.get_human_readable_stats());            
         }
@@ -217,6 +217,9 @@ fn wheel_factorization_rieminer(miner_stats: &mut Stats, i: &mut usize , m: &u64
 
             // Save them as we go, just in case
             tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
+            
+            process::exit(0x0);
+
         }
         
         *i+=1;
@@ -631,6 +634,8 @@ fn main()
     loop
     {
         let t_str: String = tools::get_difficulty_seed(config.d);
+
+        // println!("{}", t_str);
 
         let t = Integer::from_str(&t_str).unwrap();
 
