@@ -11,7 +11,6 @@ use std::time::Instant;
 
 // My own stuff
 mod tools;
-mod constellation;
 mod args;
 mod config;
 mod stats;
@@ -131,18 +130,26 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
 }
 
-fn wheel_factorization_rieminer(print_stats_every_seconds: &usize, miner_stats: &mut Stats, i: &mut usize , m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
+
+fn get_t2(t: &Integer, primorial: &Integer) -> Integer
+{
+    // T2 = T + p_m - (T % p_m)
+    let t_prime: Integer = (t + primorial).into();
+    let ret: Integer = (t.clone() % (primorial)).into();
+    let t_prime: Integer = (t_prime - ret.clone()).into();
+
+    return t_prime;
+}
+
+fn wheel_factorization_rieminer(factors_table: &Vec<u64>, print_stats_every_seconds: &usize, miner_stats: &mut Stats, i: &mut usize , m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
 {
     // Sieve size, should be the same always
     let sieve_bits = 25;
     let sieve_size = 1 << sieve_bits;
     let sieve_words: usize = sieve_size/64;
 
-    // T2 = T + p_m - (T % p_m)
-    let t_prime: Integer = (t + primorial).into();
-    let ret: Integer = (t.clone() % (primorial)).into();
-    let t_prime: Integer = (t_prime - ret.clone()).into();
-
+    
+    let t_prime = get_t2(t, primorial);
 
     // Add check that primorial < t
     if primorial >= t
@@ -150,9 +157,6 @@ fn wheel_factorization_rieminer(print_stats_every_seconds: &usize, miner_stats: 
         println!("Pick Smaller primorial number");
         process::exit(0x0);
     }
-
-    // Get factors f_p
-    let factors_table: Vec<u64> = get_eliminated_factors_rieminer(m, primes, inverses, &t_prime, offset, v, prime_table_limit);
 
     // first_candidate = T2 + o
     let first_candidate: Integer = (&t_prime).add(offset).into();
@@ -503,7 +507,7 @@ fn end_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>)
 }
 
 // Ported code from Pttn, wish I knew why it works
-fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u64>, t_prime: &Integer, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<u64>
+fn get_eliminated_factors_rieminer(t: &Integer, primorial: &Integer, m: &u64, primes: &Vec<u64>, inverses: &Vec<u64>, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<u64>
 {
     let half_pattern = get_half_pattern(v);
 
@@ -513,6 +517,9 @@ fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u6
 
     let sieve_words: usize = sieve_size/64;
 
+    let t_prime = get_t2(t, primorial);
+
+
     let mut factors_to_eliminate: Vec<u32> = Vec::new();
     factors_to_eliminate.resize(v.len() * primes.len() , 0);
 
@@ -521,8 +528,6 @@ fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u6
 
     // first_candidate = T2 + o
     let first_candidate: Integer = (&t_prime).add(offset).into();
-
-    // println!("Sieving...");
 
     let tuple_size = v.len();
 
@@ -580,11 +585,6 @@ fn get_eliminated_factors_rieminer(m: &u64, primes: &Vec<u64>, inverses: &Vec<u6
                     // Eliminate factor
                     add_to_sieve_cache(&mut factors_table, &mut sieve_cache, &mut sieve_cache_pos, factors_to_eliminate[i*tuple_size + f]);
                     
-                    // for j in &sieve_cache
-                    // {
-                    //     println!("{}", j);
-                    // }
-                    
                     factors_to_eliminate[i*tuple_size + f] += (*p as u32);
                 }
                 factors_to_eliminate[i*tuple_size + f] -= (sieve_size as u32);
@@ -631,18 +631,17 @@ fn main()
 
     println!("Done, starting sieving/primality testing loop...");
 
-    // Here we generate a difficulty seed T, do the sieve, test the candidates and repeat
+    // Loop until you find a tuple
     loop
     {
+        // Here we generate a difficulty seed T
         let t_str: String = tools::get_difficulty_seed(config.d);
-
         let t = Integer::from_str(&t_str).unwrap();
 
-        wheel_factorization_rieminer(&args.interval, &mut miner_stats, &mut i, &args.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
+        // Get factors f_p and their multiples
+        let factors_table: Vec<u64> = get_eliminated_factors_rieminer(&t, &p_m, &config.m, &primes, &inverses, &Integer::from(config.o), &config.constellation_pattern, config.prime_table_limit);
+
+        // Extract candidates and perform Fermat test
+        wheel_factorization_rieminer(&factors_table, &args.interval, &mut miner_stats, &mut i, &config.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
     }
-
-    
-
-    
-
 }
