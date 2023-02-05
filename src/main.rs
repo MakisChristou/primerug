@@ -131,7 +131,7 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
 }
 
-fn wheel_factorization_rieminer(miner_stats: &mut Stats, i: &mut usize , m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
+fn wheel_factorization_rieminer(print_stats_every_seconds: &usize, miner_stats: &mut Stats, i: &mut usize , m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
 {
     // Sieve size, should be the same always
     let sieve_bits = 25;
@@ -183,8 +183,6 @@ fn wheel_factorization_rieminer(miner_stats: &mut Stats, i: &mut usize , m: &u64
 
 
     let mut iterations_per_second = 0;
-
-    let print_stats_every_seconds = 5;
     
     for f in factor_offsets
     {
@@ -611,6 +609,7 @@ fn main()
     println!("Primorial Offset: {}", args.o);
     println!("Constellation Pattern: {}", args.pattern);
     println!("Prime Table Limit: {}", args.tablelimit);
+    println!("Stats Interval: {}", args.interval);
 
     // let config = Config::new(150, String::from("0, 2, 6, 8, 12, 18, 20, 26"), 58, 114023297140211, 7275957);
 
@@ -639,7 +638,7 @@ fn main()
 
         let t = Integer::from_str(&t_str).unwrap();
 
-        wheel_factorization_rieminer(&mut miner_stats, &mut i, &args.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
+        wheel_factorization_rieminer(&args.interval, &mut miner_stats, &mut i, &args.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
     }
 
     

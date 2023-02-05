@@ -23,4 +23,8 @@ pub struct Args {
    /// Desired pattern
    #[arg(short, long, default_value_t = 100_000)]
    pub tablelimit: u64,
+
+   /// Stats interval
+   #[arg(short, long, default_value_t = 5)]
+   pub interval: usize,
 }
