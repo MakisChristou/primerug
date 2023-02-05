@@ -7,6 +7,7 @@ use pbr::ProgressBar;
 use clap::Parser;
 use bit_vec::BitVec;
 use std::process;
+use std::time::Instant;
 
 // My own stuff
 mod tools;
@@ -132,14 +133,9 @@ fn wheel_factorization(v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &
 
 fn wheel_factorization_rieminer(miner_stats: &mut Stats, i: &mut usize , m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
 {
-    // Counters
-    let mut primes_count = 0;
-    let mut primality_tests = 0;
-
+    // Sieve size, should be the same always
     let sieve_bits = 25;
-
     let sieve_size = 1 << sieve_bits;
-
     let sieve_words: usize = sieve_size/64;
 
     // T2 = T + p_m - (T % p_m)
@@ -155,62 +151,57 @@ fn wheel_factorization_rieminer(miner_stats: &mut Stats, i: &mut usize , m: &u64
         process::exit(0x0);
     }
 
-    // println!("Candidates of the form: p_m * f + o + T2");
-    // println!("Candidates of the form: {} * f + {} + {}", primorial, offset, t_prime);
-
+    // Get factors f_p
     let factors_table: Vec<u64> = get_eliminated_factors_rieminer(m, primes, inverses, &t_prime, offset, v, prime_table_limit);
 
-    // println!("sieve.len() = {}", factors_table.len());
-    // println!("Sieve Size: {} MB", factors_table.len()/(1_000_000));
-
-    // println!("Primality Testing...");
-
-    
-
-    let t_prime_plus_offset: Integer = (&t_prime).add(offset).into();
+    // first_candidate = T2 + o
+    let first_candidate: Integer = (&t_prime).add(offset).into();
 
     let mut tuples: Vec<Integer> = Vec::new();
-
     let mut factor_offsets: Vec<u64> = Vec::new();
 
-
+    // Remove multiples of f_p
     for b in 0..sieve_words
     {
+        // Get sieve word
         let mut sieve_word: u64 = factors_table[b];
 
         // Bitwise not
         sieve_word = !sieve_word;
 
+        // Eliminate multiples of f_p
         while sieve_word != 0
         {
             let n_eliminated_until_next: u32  = sieve_word.trailing_zeros();
             let candidate_index = ((b as u32)*64 + n_eliminated_until_next);
 
-            factor_offsets.push(candidate_index as u64);
+            factor_offsets.push(candidate_index as u64); // this holds all the f's that will be tested later on
 
             sieve_word &= sieve_word - 1;
         }
     }
 
 
+    let mut iterations_per_second = 0;
 
+    let print_stats_every_seconds = 5;
+    
     for f in factor_offsets
     {
-
-        // Hardcode Stats interval for now
-        if *i % 10000 == 0
+        let start = Instant::now();
+    
+        // Print Stats for user selected interval
+        if iterations_per_second!= 0 && (*i % (print_stats_every_seconds*iterations_per_second) == 0)
         {
-            println!("{}", miner_stats.get_human_readable_stats());            
+            println!("{}", miner_stats.get_human_readable_stats());
         }
 
-        // t = p_m * f + o + T2
-        let t: Integer = (primorial.mul(&Integer::from(f))).add(&t_prime_plus_offset).into();
+        // t = p_m * f + first_candidate
+        let t: Integer = (primorial.mul(&Integer::from(f))).add(&first_candidate).into();
 
         // Fermat Test on j
         if is_constellation(&t, &v, miner_stats)
         {
-            primes_count+=1;
-
             println!("Found: {}", t);
 
             tuples.push(t);
@@ -219,10 +210,14 @@ fn wheel_factorization_rieminer(miner_stats: &mut Stats, i: &mut usize , m: &u64
             tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
             
             process::exit(0x0);
-
         }
         
         *i+=1;
+
+        // Calculate iteration time
+        let iteration_time = start.elapsed();
+        iterations_per_second = 1_000_000_000/(iteration_time.as_nanos() as usize);
+
     }
     tuples
 }
@@ -623,19 +618,24 @@ fn main()
 
     let p_m = tools::get_primorial(config.m);
 
+
+    println!("Generating primetable of the first {} primes with sieve of Eratosthenes...", args.tablelimit);
+
     let primes = tools::generate_primetable_bitvector_half(config.prime_table_limit);
 
+    println!("Calculating primorial inverse data...");
     let inverses = tools::get_primorial_inverses(&p_m, &primes);
     
     let mut i = 0;
 
     let mut miner_stats = Stats::new(config.constellation_pattern.len());
 
+    println!("Done, starting sieving/primality testing loop...");
+
+    // Here we generate a difficulty seed T, do the sieve, test the candidates and repeat
     loop
     {
         let t_str: String = tools::get_difficulty_seed(config.d);
-
-        // println!("{}", t_str);
 
         let t = Integer::from_str(&t_str).unwrap();
 

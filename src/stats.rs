@@ -23,7 +23,7 @@ impl Stats
         }
     }
 
-    fn cps(&self) -> u64
+    pub fn cps(&self) -> u64
     {
         let elapsed: u64 = self.duration.elapsed().as_secs();
 
