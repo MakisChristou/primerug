@@ -2,7 +2,6 @@ use std::ops::MulAssign;
 use std::ops::Mul;
 use rug::{Assign, Integer};
 use rand::{self, Rng}; // 0.8.0
-use bit_vec::BitVec;
 use std::fs::File;
 use std::io::Write;
 use std::fs::OpenOptions;

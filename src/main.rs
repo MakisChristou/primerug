@@ -172,6 +172,7 @@ fn get_half_pattern(v: &Vec<u64>) -> Vec<u64>
     half_pattern
 }
 
+#[inline(always)]
 fn get_mi(inverses: &Vec<u64>, p: &u64, i: usize) -> Vec<u64>
 {
     let mut mi: Vec<u64> = Vec::new();
@@ -202,6 +203,7 @@ fn get_mi(inverses: &Vec<u64>, p: &u64, i: usize) -> Vec<u64>
     mi
 }
 
+#[inline(always)]
 fn add_to_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>, pos: &mut usize, ent: u32)
 {
     let old: u32 = sieve_cache[*pos];
@@ -216,6 +218,7 @@ fn add_to_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>, pos: &mu
     (*pos) &= sieve_cache.len() - 1;
 }
 
+#[inline(always)]
 fn end_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>)
 {
     for i in 0..sieve_cache.len()
@@ -229,7 +232,7 @@ fn end_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>)
 }
 
 // Ported code from Pttn, wish I knew why it works
-fn get_eliminated_factors(t: &Integer, primorial: &Integer, m: &u64, primes: &Vec<u64>, inverses: &Vec<u64>, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64) -> Vec<u64>
+fn get_eliminated_factors(factors_to_eliminate: &mut Vec<u32>, factors_table: &mut Vec<u64>, t: &Integer, primorial: &Integer, m: &u64, primes: &Vec<u64>, inverses: &Vec<u64>, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64)
 {
     let half_pattern = get_half_pattern(v);
 
@@ -241,12 +244,6 @@ fn get_eliminated_factors(t: &Integer, primorial: &Integer, m: &u64, primes: &Ve
 
     let t_prime = get_t2(t, primorial);
 
-
-    let mut factors_to_eliminate: Vec<u32> = Vec::new();
-    factors_to_eliminate.resize(v.len() * primes.len() , 0);
-
-    let mut factors_table: Vec<u64> = Vec::new();
-    factors_table.resize(sieve_words, 0);
 
     // first_candidate = T2 + o
     let first_candidate: Integer = (&t_prime).add(offset).into();
@@ -305,7 +302,7 @@ fn get_eliminated_factors(t: &Integer, primorial: &Integer, m: &u64, primes: &Ve
                 while factors_to_eliminate[i*tuple_size + f] < sieve_size as u32
                 {
                     // Eliminate factor
-                    add_to_sieve_cache(&mut factors_table, &mut sieve_cache, &mut sieve_cache_pos, factors_to_eliminate[i*tuple_size + f]);
+                    add_to_sieve_cache(factors_table, &mut sieve_cache, &mut sieve_cache_pos, factors_to_eliminate[i*tuple_size + f]);
                     
                     factors_to_eliminate[i*tuple_size + f] += (*p as u32);
                 }
@@ -316,9 +313,8 @@ fn get_eliminated_factors(t: &Integer, primorial: &Integer, m: &u64, primes: &Ve
         i+=1;
     }
 
-    end_sieve_cache(&mut factors_table, &mut sieve_cache);
+    end_sieve_cache(factors_table, &mut sieve_cache);
 
-    factors_table
 }
 
 fn receive_last_message(rx: &mpsc::Receiver<String>) -> String
@@ -360,6 +356,17 @@ fn main()
 
     println!("Calculating primorial inverse data...");
     let inverses = tools::get_primorial_inverses(&p_m, &primes);
+
+
+    // Allocate memory for sieve
+    let sieve_bits = 25;
+
+    let sieve_size = 1 << sieve_bits;
+
+    let sieve_words: usize = sieve_size/64;
+
+    let mut factors_to_eliminate: Vec<u32> = vec![0; config.constellation_pattern.len() * primes.len()];
+    let mut factors_table: Vec<u64> = vec![0; sieve_words];
     
     let mut i = 0;
 
@@ -372,6 +379,7 @@ fn main()
 
     let print_stats_interval = (args.interval*1000) as u64;
 
+    // Stat printing thread
     thread::spawn(move || {
         loop
         {
@@ -389,8 +397,12 @@ fn main()
         let t_str: String = tools::get_difficulty_seed(config.d);
         let t = Integer::from_str(&t_str).unwrap();
 
+        // Reset Sieve
+        factors_to_eliminate.iter_mut().for_each(|x| *x = 0);
+        factors_table.iter_mut().for_each(|x| *x = 0);
+
         // Get factors f_p and their multiples
-        let factors_table: Vec<u64> = get_eliminated_factors(&t, &p_m, &config.m, &primes, &inverses, &Integer::from(config.o), &config.constellation_pattern, config.prime_table_limit);
+        get_eliminated_factors(&mut factors_to_eliminate, &mut factors_table, &t, &p_m, &config.m, &primes, &inverses, &Integer::from(config.o), &config.constellation_pattern, config.prime_table_limit);
 
         // Extract candidates and perform Fermat test
         wheel_factorization(&mut tx, &factors_table, &mut miner_stats, &mut i, &config.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
