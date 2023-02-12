@@ -255,10 +255,9 @@ pub fn get_difficulty_seed(d: u32) -> String
 // Save tuple vector in a text file
 pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usize)
 {
-    // let mut output = File::create(&tuple_file).unwrap();
+    let mut output = File::create(&tuple_file).unwrap();
 
     let mut file = OpenOptions::new().write(true).append(true).open(tuple_file).unwrap();
-
 
     for tuple in tuples
     {

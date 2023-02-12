@@ -220,7 +220,7 @@ fn wheel_factorization_rieminer(tx: &mut mpsc::Sender<String>, factors_table: &V
             // Save them as we go, just in case
             tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
             
-            // process::exit(0x0);
+            process::exit(0x0);
         }
         
         *i+=1;
@@ -641,7 +641,6 @@ fn main()
     let config = Config::new(args.digits, args.pattern, args.m, args.o, args.tablelimit);
 
     let p_m = tools::get_primorial(config.m);
-
 
     println!("Generating primetable of the first {} primes with sieve of Eratosthenes...", args.tablelimit);
 
