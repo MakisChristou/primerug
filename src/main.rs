@@ -8,6 +8,9 @@ use clap::Parser;
 use bit_vec::BitVec;
 use std::process;
 use std::time::Instant;
+use std::thread;
+use std::time::Duration;
+use std::sync::mpsc;
 
 // My own stuff
 mod tools;
@@ -141,7 +144,7 @@ fn get_t2(t: &Integer, primorial: &Integer) -> Integer
     return t_prime;
 }
 
-fn wheel_factorization_rieminer(factors_table: &Vec<u64>, print_stats_every_seconds: &usize, miner_stats: &mut Stats, i: &mut usize , m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
+fn wheel_factorization_rieminer(tx: &mut mpsc::Sender<String>, factors_table: &Vec<u64>, miner_stats: &mut Stats, i: &mut usize , m: &u64, v: &Vec<u64>, t: &Integer, primorial: &Integer, offset: &Integer, primes: &Vec<u64>, inverses: &Vec<u64>, prime_table_limit: u64) -> Vec<Integer>
 {
     // Sieve size, should be the same always
     let sieve_bits = 25;
@@ -186,16 +189,22 @@ fn wheel_factorization_rieminer(factors_table: &Vec<u64>, print_stats_every_seco
     }
 
 
-    let mut iterations_per_second = 0;
-    
+    // let mut iterations_per_second = 0;
     for f in factor_offsets
     {
         let start = Instant::now();
-    
+
+        let cps = miner_stats.cps() as usize;
+        let num_of_digits = cps.to_string().len() as i32;
+        let rounded_number = (cps as f64 / 10.0f64.powi(num_of_digits - 1)) as usize * 10.0f64.powi(num_of_digits - 1) as usize;
+
+
         // Print Stats for user selected interval
-        if iterations_per_second!= 0 && (*i % (print_stats_every_seconds*iterations_per_second) == 0)
+        if (rounded_number != 0) && (*i % (rounded_number) == 0)
         {
-            println!("{}", miner_stats.get_human_readable_stats());
+            // println!("*i = {}", *i);
+            tx.send(miner_stats.get_human_readable_stats()).unwrap();
+            // println!("Sending {}", miner_stats.get_human_readable_stats());
         }
 
         // t = p_m * f + first_candidate
@@ -211,14 +220,14 @@ fn wheel_factorization_rieminer(factors_table: &Vec<u64>, print_stats_every_seco
             // Save them as we go, just in case
             tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
             
-            process::exit(0x0);
+            // process::exit(0x0);
         }
         
         *i+=1;
 
         // Calculate iteration time
-        let iteration_time = start.elapsed();
-        iterations_per_second = 1_000_000_000/(iteration_time.as_nanos() as usize);
+        // let iteration_time = start.elapsed();
+        // iterations_per_second = 1_000_000_000/(iteration_time.as_nanos() as usize);
 
     }
     tuples
@@ -599,6 +608,22 @@ fn get_eliminated_factors_rieminer(t: &Integer, primorial: &Integer, m: &u64, pr
     factors_table
 }
 
+
+fn receive_last_message(rx: &mpsc::Receiver<String>) -> String
+{
+    let mut last_message = String::from("");
+
+    loop {
+        match rx.try_recv() {
+            Ok(message) => {
+                last_message = message;
+            }
+            Err(_) => break,
+        }
+    }
+    last_message
+}
+
 fn main()
 {
     let args = Args::parse();
@@ -631,6 +656,21 @@ fn main()
 
     println!("Done, starting sieving/primality testing loop...");
 
+    // Multiple producer, single consumer channel
+    let (mut tx, rx) = mpsc::channel::<String>();
+
+    let print_stats_interval = (args.interval*1000) as u64;
+
+    thread::spawn(move || {
+        loop
+        {
+            let msg = receive_last_message(&rx);
+            println!("{}", msg);
+            thread::sleep(Duration::from_millis(print_stats_interval));
+        }
+        });
+
+
     // Loop until you find a tuple
     loop
     {
@@ -642,6 +682,6 @@ fn main()
         let factors_table: Vec<u64> = get_eliminated_factors_rieminer(&t, &p_m, &config.m, &primes, &inverses, &Integer::from(config.o), &config.constellation_pattern, config.prime_table_limit);
 
         // Extract candidates and perform Fermat test
-        wheel_factorization_rieminer(&factors_table, &args.interval, &mut miner_stats, &mut i, &config.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
+        wheel_factorization_rieminer(&mut tx, &factors_table, &mut miner_stats, &mut i, &config.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit);
     }
 }
