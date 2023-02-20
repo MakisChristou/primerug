@@ -70,5 +70,32 @@ c/s: 3642, r: 15.70 (3248, 228, 13, 2, 0, 0, 0, 0) eta: 11 d
 c/s: 3631, r: 15.61 (4421, 313, 23, 2, 0, 0, 0, 0) eta: 11 d
 ```
 
-
+# Attempt to break a world record (Ryzen 5950x)
+```bash
+$ primerug --digits 400 -m 157 -o 114023297140211 --pattern "0, 2, 6, 8, 12, 18, 20, 26" --tablelimit 894144000 --threads 30
+tern "0, 2, 6, 8, 12, 18, 20, 26" --tablelimit 894144000 --threads 30
+Tuple Digits: 400
+Primorial Number: 157
+Primorial Offset: 114023297140211
+Constellation Pattern: 0, 2, 6, 8, 12, 18, 20, 26
+Prime Table Limit: 894144000
+Stats Interval: 5
+Threads: 30
+Generating primetable of the first 894144000 primes with sieve of Eratosthenes...
+Calculating primorial inverse data...
+Done, starting sieving/primality testing loop...
+c/s: 899, r: 25.64 (842, 37, 3, 0, 0, 0, 0, 0) eta: 6 y
+c/s: 4227, r: 25.56 (4797, 206, 8, 0, 0, 0, 0, 0) eta: 1 y
+c/s: 3627, r: 25.41 (6281, 261, 10, 0, 0, 0, 0, 0) eta: 1 y
+c/s: 4804, r: 25.31 (9300, 386, 11, 0, 0, 0, 0, 0) eta: 1 y
+c/s: 5224, r: 25.31 (11971, 500, 15, 0, 0, 0, 0, 0) eta: 1 y
+c/s: 5316, r: 25.27 (14094, 588, 21, 0, 0, 0, 0, 0) eta: 362 d
+c/s: 6018, r: 25.00 (18536, 771, 30, 0, 0, 0, 0, 0) eta: 293 d
+c/s: 5917, r: 24.92 (20899, 869, 33, 0, 0, 0, 0, 0) eta: 290 d
+c/s: 6544, r: 25.02 (25369, 1052, 42, 0, 0, 0, 0, 0) eta: 271 d
+c/s: 6334, r: 25.09 (27520, 1137, 46, 1, 0, 0, 0, 0) eta: 287 d
+c/s: 6888, r: 25.18 (32006, 1321, 57, 1, 0, 0, 0, 0) eta: 271 d
+c/s: 6649, r: 25.13 (34657, 1419, 59, 1, 0, 0, 0, 0) eta: 277 d
+c/s: 6945, r: 25.13 (38689, 1589, 65, 1, 0, 0, 0, 0) eta: 265 d
+```
 

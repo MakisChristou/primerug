@@ -27,4 +27,8 @@ pub struct Args {
    /// Stats interval
    #[arg(short, long, default_value_t = 5)]
    pub interval: usize,
+
+   /// Threads
+   #[arg(short, long, default_value_t = 1)]
+   pub threads: usize,
 }

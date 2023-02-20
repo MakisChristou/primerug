@@ -5,12 +5,13 @@ pub struct Config
     pub m: u64,
     pub o: u64,
     pub prime_table_limit: u64,
+    pub threads: usize,
 }
 
 
 impl Config
 {
-    pub fn new(d: u32, constellation_pattern: String, m: u64, o: u64, prime_table_limit: u64) -> Config
+    pub fn new(d: u32, constellation_pattern: String, m: u64, o: u64, prime_table_limit: u64, threads: usize) -> Config
     {
 
         let v = Self::get_pattern_vector(constellation_pattern);
@@ -21,7 +22,8 @@ impl Config
             constellation_pattern: v,
             m,
             o,
-            prime_table_limit
+            prime_table_limit,
+            threads,
         }
     }
 

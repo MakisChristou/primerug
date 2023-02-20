@@ -1,4 +1,5 @@
 use std::time::Instant;
+use std::collections::HashMap;
 
 pub struct Stats
 {
@@ -20,6 +21,31 @@ impl Stats
             pattern_size,
             tuple_counts,
             duration: Instant::now(),
+        }
+    }
+
+    // Second constructor
+    pub fn gen_total_stats(msgs: HashMap<usize, Vec<u64>>, duration: Instant, pattern_size: usize) -> Stats
+    {
+        let mut total_counts = vec![0; pattern_size+1];
+        
+
+        for msg in msgs
+        {
+            // println!("{:?}", msg.1);
+            let mut i = 0;
+            for count in msg.1
+            {
+                total_counts[i] += count;
+                i+=1;
+            }
+        }
+
+        Stats
+        {
+            pattern_size,
+            tuple_counts: total_counts,
+            duration,
         }
     }
 
@@ -120,6 +146,11 @@ impl Stats
     {
         let elapsed: u64 = self.duration.elapsed().as_secs();
         return elapsed;
+    }
+
+    pub fn get_tuple_counts(&self) -> Vec<u64>
+    {
+        self.tuple_counts.clone()
     }
 
 }
