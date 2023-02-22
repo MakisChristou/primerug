@@ -142,12 +142,6 @@ impl Stats
         }
     }
 
-    pub fn get_elapsed(&self) -> u64
-    {
-        let elapsed: u64 = self.duration.elapsed().as_secs();
-        return elapsed;
-    }
-
     pub fn get_tuple_counts(&self) -> Vec<u64>
     {
         self.tuple_counts.clone()

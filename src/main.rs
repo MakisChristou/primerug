@@ -23,7 +23,6 @@ use args::Args;
 use stats::Stats;
 
 #[inline(always)]
-// Fermat primality test
 fn fermat(n: &Integer) -> bool
 {
     let a = Integer::from(2);
@@ -39,7 +38,6 @@ fn fermat(n: &Integer) -> bool
 #[inline(always)]
 fn is_constellation(n: &Integer, v: &Vec<u64>, miner_stats: &mut Stats) -> bool
 {
-
     miner_stats.tuple_counts[0]+=1;
 
     // Check each pattern offset for primality
@@ -117,17 +115,13 @@ fn wheel_factorization(tx: &mpsc::Sender<(Vec<u64>, usize)>, factors_table: &Vec
     // let mut iterations_per_second = 0;
     for f in factor_offsets
     {
-        let start = Instant::now();
-
         let cps = miner_stats.cps() as usize;
         let num_of_digits = cps.to_string().len() as i32;
         let rounded_number = (cps as f64 / 10.0f64.powi(num_of_digits - 1)) as usize * 10.0f64.powi(num_of_digits - 1) as usize;
 
-
         // Print Stats for user selected interval
         if (rounded_number != 0) && (*i % (rounded_number) == 0)
         {
-            // println!("*i = {}", *i);
             tx.send((miner_stats.get_tuple_counts(), thread_id)).unwrap();
             // println!("Sending {:?}", miner_stats.get_tuple_counts());
         }
@@ -142,18 +136,11 @@ fn wheel_factorization(tx: &mpsc::Sender<(Vec<u64>, usize)>, factors_table: &Vec
 
             tuples.push(t);
 
-            // Save them as we go, just in case
             tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
             
             process::exit(0x0);
         }
-        
         *i+=1;
-
-        // Calculate iteration time
-        // let iteration_time = start.elapsed();
-        // iterations_per_second = 1_000_000_000/(iteration_time.as_nanos() as usize);
-
     }
     tuples
 }
@@ -231,7 +218,7 @@ fn end_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>)
     }
 }
 
-// Ported code from Pttn, wish I knew why it works
+// Ported code from Pttn
 fn get_eliminated_factors(factors_to_eliminate: &mut Vec<u32>, factors_table: &mut Vec<u64>, t: &Integer, primorial: &Integer, m: &u64, primes: &Vec<u64>, inverses: &Vec<u64>, offset: &Integer, v: &Vec<u64>, prime_table_limit: u64)
 {
     let half_pattern = get_half_pattern(v);
@@ -308,15 +295,13 @@ fn get_eliminated_factors(factors_to_eliminate: &mut Vec<u32>, factors_table: &m
                 }
                 factors_to_eliminate[i*tuple_size + f] -= (sieve_size as u32);
             }
-            
         }
         i+=1;
     }
-
     end_sieve_cache(factors_table, &mut sieve_cache);
-
 }
 
+// Blocks until it receives the tuple counts from each thread
 fn receive_last_message(rx: &mpsc::Receiver<(Vec<u64>, usize)>, threads: usize) -> HashMap<usize, Vec<u64>>
 {
     let mut thread_messages: HashMap<usize, Vec<u64>> = HashMap::new();
@@ -327,10 +312,7 @@ fn receive_last_message(rx: &mpsc::Receiver<(Vec<u64>, usize)>, threads: usize) 
         {
             match rx.try_recv() {
                 Ok(message) => {
-                    // thread_messages[message.1] = message.0;
-                    // println!("Received from thread {}, {:?}", message.1, message.0);
                     thread_messages.insert(message.1, message.0);
-                    // println!("thread_messages.len() = {}", thread_messages.len());
                 }
                 Err(_) => break,
             }
@@ -340,23 +322,19 @@ fn receive_last_message(rx: &mpsc::Receiver<(Vec<u64>, usize)>, threads: usize) 
     thread_messages
 }
 
-
 fn thread_loop(p_m: Arc<Integer>, config: Arc<Config>, primes: Arc<Vec<u64>>, inverses: Arc<Vec<u64>>, tx: mpsc::Sender<(Vec<u64>, usize)>, thread_id: usize)
 {
-    // Allocate memory for sieve
     let sieve_bits = 25;
-
     let sieve_size = 1 << sieve_bits;
-
     let sieve_words: usize = sieve_size/64;
 
+    // Allocate memory for sieve
     let mut factors_to_eliminate: Vec<u32> = vec![0; config.constellation_pattern.len() * primes.len()];
     let mut factors_table: Vec<u64> = vec![0; sieve_words];
     
     let mut i = 0;
 
     let mut miner_stats = Stats::new(config.constellation_pattern.len());
-
 
     loop
     {
@@ -368,10 +346,10 @@ fn thread_loop(p_m: Arc<Integer>, config: Arc<Config>, primes: Arc<Vec<u64>>, in
         factors_to_eliminate.iter_mut().for_each(|x| *x = 0);
         factors_table.iter_mut().for_each(|x| *x = 0);
 
-        // Get factors f_p and their multiples
+        // Get factors f_p and their multiples (i.e. generate sieve)
         get_eliminated_factors(&mut factors_to_eliminate, &mut factors_table, &t, &p_m, &config.m, &primes, &inverses, &Integer::from(config.o), &config.constellation_pattern, config.prime_table_limit);
 
-        // Extract candidates and perform Fermat test
+        // Test remaining candidates from the sieve
         wheel_factorization(&tx, &factors_table, &mut miner_stats, &mut i, &config.m, &config.constellation_pattern, &t, &p_m, &Integer::from(config.o), &primes, &inverses, config.prime_table_limit, thread_id);
     }
 }
@@ -390,15 +368,12 @@ fn main()
     println!("Threads: {}", args.threads);
 
     // let config = Config::new(150, String::from("0, 2, 6, 8, 12, 18, 20, 26"), 58, 114023297140211, 7275957);
-
     let config = Config::new(args.digits, args.pattern, args.m, args.o, args.tablelimit, args.threads);
-
     let extra_config = config.clone();
 
     let p_m = tools::get_primorial(config.m);
 
-    println!("Generating primetable of the first {} primes with sieve of Eratosthenes...", args.tablelimit);
-
+    println!("Generating primetable of the first primes up to {} with sieve of Eratosthenes...", args.tablelimit);
     let primes = tools::generate_primetable(config.prime_table_limit);
 
     println!("Calculating primorial inverse data...");
@@ -409,22 +384,22 @@ fn main()
 
     // Multiple producer, single consumer channel
     let (tx, rx) = mpsc::channel::<(Vec<u64>, usize)>();
+
+    // For printing thread
     let print_stats_interval = (args.interval*1000) as u64;
     let start_time = Instant::now();
-
     let threads = config.threads;
 
+    // For worker threads
     let shared_p_m = Arc::new(p_m);
     let shared_config = Arc::new(config);
     let shared_primes = Arc::new(primes);
     let shared_inverses = Arc::new(inverses);
-    
-    let mut threads_vector = Vec::new();
 
+    let mut handles = Vec::new();
     
     // Stat printing thread
     thread::spawn(move || {
-
         loop
         {
             let msgs = receive_last_message(&rx, threads);
@@ -438,7 +413,7 @@ fn main()
         }
         });
 
-    // Spawn threads
+    // Spawn worker threads
     for i in 0..threads
     {
         let tx_i = tx.clone();
@@ -452,11 +427,11 @@ fn main()
             thread_loop(shared_p_m_value, shared_config_value, shared_primes_value, shared_inverses_value, tx_i, i);
         });
 
-        threads_vector.push(t);
+        handles.push(t);
     }
 
     // Wait for threads to finish
-    for handle in threads_vector
+    for handle in handles
     {
         handle.join().unwrap();           
     }

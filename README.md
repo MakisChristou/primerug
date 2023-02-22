@@ -1,8 +1,11 @@
-# Primerug
-A prime k-tuple finder based on the rug Rust crate. The code is heavily inspired by Pttn's [RieMiner](https://github.com/Pttn/rieMiner). For a detailed explanation on how the algorithm works see my explanation [here](https://makischristou.gitbook.io/primes/) and Pttn's original [writeup](https://riecoin.dev/en/Mining_Algorithm). Currently primerug can be considered only as a learning exercise for me to better understand Rust and how efficient sieving works for prime k-tuples and not a rieMiner replacement for breaking world records. Depending on the configuration it is currently 2-3 times slower than rieMiner with the exact same search parameters. So if breaking world records is your goal, you should use rieMiner or any other state-of-the-art siever/primality tester for the time being.
+A prime k-tuple finder based on the rug Rust crate. The goal of this software is to search for large prime k-tuples. The code is heavily inspired by Pttn's [RieMiner](https://github.com/Pttn/rieMiner). For a detailed explanation on how the algorithm works see my explanation [here](https://makischristou.gitbook.io/primes/) and Pttn's original [writeup](https://riecoin.dev/en/Mining_Algorithm). Currently primerug can be considered only as a learning exercise for me to better understand Rust and how efficient sieving works for prime k-tuples and not a rieMiner replacement for breaking world records. Depending on the configuration it is currently 2-3 times slower than rieMiner with the exact same search parameters. So if breaking world records is your goal, you should use rieMiner or any other state-of-the-art siever/primality tester for the time being.
+
+
+# Future plans
+* Automatically select primorial, offset and primetable limit
+* Performance improvements
 
 # Build
-
 First install Rust from [here](https://www.rust-lang.org/tools/install). Then you can build the project by simply typing:
 
 ```bash
@@ -26,30 +29,38 @@ Options:
   -p, --pattern <PATTERN>        Desired pattern [default: "0, 4, 6, 10, 12, 16"]
   -t, --tablelimit <TABLELIMIT>  Desired pattern [default: 100000]
   -i, --interval <INTERVAL>      Stats interval [default: 5]
+  -t, --threads <THREADS>        Threads [default: 1]
   -h, --help                     Print help
   -V, --version                  Print version
 ```
 
-# Run with default options for 200 digits
+# Crates used
+* [rug](https://crates.io/crates/rug) for bignum arithmetic
+* [clap](https://crates.io/crates/clap) for argument parsing
+
+# Example Usage
+## Default options
 Running with the default options is not really recommended as primerug would most likely use non-optimal settings and even a different constellation pattern than what you desire. But its a good way to easily run the program and get a feel of how it works before having to tinker with the settings.
 
 ```bash
-$ primerug --digits 200
-Tuple Digits: 200
+$ primerug --digits 100
+Tuple Digits: 100
 Primorial Number: 3
 Primorial Offset: 97
 Constellation Pattern: 0, 4, 6, 10, 12, 16
 Prime Table Limit: 100000
 Stats Interval: 5
-Generating primetable of the first 100000 primes with sieve of Eratosthenes...
+Threads: 1
+Generating primetable of the first primes up to 100000 with sieve of Eratosthenes...
 Calculating primorial inverse data...
 Done, starting sieving/primality testing loop...
-
-c/s: 300, r: 19.35 (62, 1, 0, 0, 0, 0) eta: 2 d
-c/s: 288, r: 20.47 (127, 7, 0, 0, 0, 0) eta: 2 d
+c/s: 1, r: inf (0, 0, 0, 0, 0, 0) eta: 584554049253 y
+c/s: 83, r: 13.16 (38, 0, 0, 0, 0, 0) eta: 17 h
+c/s: 100, r: 13.10 (84, 5, 0, 0, 0, 0) eta: 14 h
+c/s: 93, r: 12.30 (122, 8, 0, 0, 0, 0) eta: 10 h
 ```
 
-# Run using custom primorial number, offset, constellation pattern and prime table limit
+## Custom Options
 The following is a way to run primerug in order to search for an 8-tuple that has over 200 digits.
 
 ```bash
@@ -60,17 +71,21 @@ Primorial Offset: 380284918609481
 Constellation Pattern: 0, 2, 6, 8, 12, 18, 20, 26
 Prime Table Limit: 16777216
 Stats Interval: 5
-Generating primetable of the first 16777216 primes with sieve of Eratosthenes...
+Threads: 1
+Generating primetable of the first primes up to 16777216 with sieve of Eratosthenes...
 Calculating primorial inverse data...
 Done, starting sieving/primality testing loop...
-
-c/s: 4000, r: 15.14 (1057, 84, 5, 1, 0, 0, 0, 0) eta: 7 d
-c/s: 3666, r: 15.15 (2178, 164, 7, 1, 0, 0, 0, 0) eta: 8 d
-c/s: 3642, r: 15.70 (3248, 228, 13, 2, 0, 0, 0, 0) eta: 11 d
-c/s: 3631, r: 15.61 (4421, 313, 23, 2, 0, 0, 0, 0) eta: 11 d
+c/s: 1, r: inf (0, 0, 0, 0, 0, 0, 0, 0) eta: 584554049253 y
+c/s: 1500, r: 15.20 (592, 34, 4, 0, 0, 0, 0, 0) eta: 22 d
+c/s: 1272, r: 14.97 (935, 59, 6, 0, 0, 0, 0, 0) eta: 22 d
+c/s: 1125, r: 15.22 (1183, 74, 7, 1, 0, 0, 0, 0) eta: 29 d
+c/s: 1095, r: 15.49 (1485, 95, 8, 1, 0, 0, 0, 0) eta: 35 d
+c/s: 1192, r: 15.34 (2021, 134, 10, 3, 0, 0, 0, 0) eta: 29 d
+c/s: 1032, r: 15.38 (2080, 138, 10, 3, 0, 0, 0, 0) eta: 35 d
+c/s: 1277, r: 15.26 (3014, 193, 15, 4, 0, 0, 0, 0) eta: 26 d
 ```
 
-# Attempt to break a world record (Ryzen 5950x)
+## Attempt to break a world record
 ```bash
 $ primerug --digits 400 -m 157 -o 114023297140211 --pattern "0, 2, 6, 8, 12, 18, 20, 26" --tablelimit 894144000 --threads 30
 tern "0, 2, 6, 8, 12, 18, 20, 26" --tablelimit 894144000 --threads 30

@@ -9,7 +9,6 @@ pub struct Config
     pub threads: usize,
 }
 
-
 impl Config
 {
     pub fn new(d: u32, constellation_pattern: String, m: u64, o: u64, prime_table_limit: u64, threads: usize) -> Config
