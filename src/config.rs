@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct Config
 {
     pub d: u32,

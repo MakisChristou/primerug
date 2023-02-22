@@ -393,6 +393,8 @@ fn main()
 
     let config = Config::new(args.digits, args.pattern, args.m, args.o, args.tablelimit, args.threads);
 
+    let extra_config = config.clone();
+
     let p_m = tools::get_primorial(config.m);
 
     println!("Generating primetable of the first {} primes with sieve of Eratosthenes...", args.tablelimit);
@@ -419,7 +421,7 @@ fn main()
     
     let mut threads_vector = Vec::new();
 
-
+    
     // Stat printing thread
     thread::spawn(move || {
 
@@ -427,7 +429,9 @@ fn main()
         {
             let msgs = receive_last_message(&rx, threads);
 
-            let total_stats = Stats::gen_total_stats(msgs, start_time.clone(), 8);
+            let cloned_pattern_size = extra_config.constellation_pattern.len();
+
+            let total_stats = Stats::gen_total_stats(msgs, start_time.clone(), cloned_pattern_size);
             println!("{}", total_stats.get_human_readable_stats());
             
             thread::sleep(Duration::from_millis(print_stats_interval));
