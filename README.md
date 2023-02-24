@@ -86,6 +86,8 @@ c/s: 1277, r: 15.26 (3014, 193, 15, 4, 0, 0, 0, 0) eta: 26 d
 ```
 
 ## Attempt to break a world record
+If you want to attempt to break a world record then the easiest one is the 8-tuple one, currently set by [me](https://pzktupel.de/ktuplets.php#largest8) at 362 digits. The config below gets the least eta on my Ryzen 5950x at around 220 days to break it. You milage may vary depending on your hardware.
+
 ```bash
 $ primerug --digits 400 -m 157 -o 114023297140211 --pattern "0, 2, 6, 8, 12, 18, 20, 26" --tablelimit 894144000 --threads 30
 tern "0, 2, 6, 8, 12, 18, 20, 26" --tablelimit 894144000 --threads 30

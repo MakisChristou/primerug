@@ -94,9 +94,7 @@ fn wheel_factorization(
     let mut factor_offsets: Vec<u64> = Vec::new();
 
     // Remove multiples of f_p
-    for b in 0..sieve_words {
-        // Get sieve word
-        let mut sieve_word: u64 = factors_table[b];
+    for (b, mut sieve_word) in factors_table[..sieve_words].iter().copied().enumerate() {
 
         // Bitwise not
         sieve_word = !sieve_word;
@@ -219,7 +217,7 @@ fn get_eliminated_factors(
     let m = config.m;
     let offset = Integer::from(config.o);
     let v = &config.constellation_pattern;
-    let primorial = &&config.primorial;
+    let primorial = &config.primorial;
 
     let half_pattern = get_half_pattern(v);
 
