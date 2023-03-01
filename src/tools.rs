@@ -72,7 +72,7 @@ pub fn get_primorial_inverses(primorial: &Integer, v: &Vec<u64>) -> Vec<u64> {
             Some(r) => Integer::from(r),
             None => Integer::from(0),
         };
-        inverses.push(inverse.to_u64().unwrap());
+        inverses.push(inverse.to_u64().expect("Cannot convert inverse to u64"));
     }
 
     return inverses;
@@ -93,13 +93,13 @@ pub fn get_difficulty_seed(d: u32) -> String {
 
 // Save tuple vector in a text file
 pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usize) {
-    let mut output = File::create(&tuple_file).unwrap();
+    let mut output = File::create(&tuple_file).expect("Cannot create output file");
 
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
         .open(tuple_file)
-        .unwrap();
+        .expect("Cannot open file");
 
     for tuple in tuples {
         write!(file, "{}-tuple: {}\n", tuple_type, tuple);

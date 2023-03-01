@@ -333,7 +333,7 @@ fn thread_loop(
     loop {
         // Here we generate a difficulty seed T
         let t_str: String = tools::get_difficulty_seed(config.d);
-        let t = Integer::from_str(&t_str).unwrap();
+        let t = Integer::from_str(&t_str).expect("Invalid difficulty seed");
 
         // Reset Sieve
         factors_to_eliminate.iter_mut().for_each(|x| *x = 0);
@@ -450,6 +450,6 @@ fn main() {
 
     // Wait for threads to finish
     for handle in handles {
-        handle.join().unwrap();
+        handle.join().expect("Error joining worker thread");
     }
 }

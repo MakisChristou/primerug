@@ -42,7 +42,7 @@ impl Config {
         let mut pattern_vector: Vec<u64> = Vec::new();
 
         for o in str_pattern {
-            pattern_vector.push(o.parse::<u64>().unwrap());
+            pattern_vector.push(o.parse::<u64>().expect("Invalid patern"));
         }
 
         pattern_vector
