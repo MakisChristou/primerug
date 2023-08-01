@@ -1,5 +1,10 @@
 A prime k-tuple finder based on the rug Rust crate. The goal of this software is to search for large prime k-tuples. The code is heavily inspired by Pttn's [RieMiner](https://github.com/Pttn/rieMiner). For a detailed explanation on how the algorithm works see my explanation [here](https://makischristou.gitbook.io/primes/) and Pttn's original [writeup](https://riecoin.dev/en/Mining_Algorithm). Currently primerug can be considered only as a learning exercise for me to better understand Rust and how efficient sieving works for prime k-tuples and not a rieMiner replacement for breaking world records. Depending on the configuration it is currently 2-3 times slower than rieMiner with the exact same search parameters. So if breaking world records is your goal, you should use rieMiner or any other state-of-the-art siever/primality tester for the time being.
 
+# Install
+
+```bash
+cargo install primerug
+```
 
 # Future plans
 * Automatically select primorial, offset and primetable limit
