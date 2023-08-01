@@ -1,7 +1,10 @@
 [package]
 name = "primerug"
 version = "0.1.0"
+description = "A prime k-tuple finder based on the rug crate."
+authors = ["Makis Christou <makis_christou@protonmail.com>"]
 edition = "2021"
+license = "GPL-3.0-or-later"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
