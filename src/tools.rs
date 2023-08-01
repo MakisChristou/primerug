@@ -47,11 +47,11 @@ pub fn generate_primetable(prime_table_limit: u64) -> Vec<u64> {
     }
 
     // We have eliminated the composites
-    let mut prime_table: Vec<u64> = Vec::from(vec![1, 2]);
+    let mut prime_table: Vec<u64> = vec![1, 2];
 
     let mut i = 1;
 
-    while (i << 1) + 1 <= prime_table_limit {
+    while (i << 1) < prime_table_limit {
         if (composite_table[(i as usize) >> 6] & (1 << (i & 63))) == 0 {
             prime_table.push((i << 1) + 1);
         }
@@ -74,8 +74,7 @@ pub fn get_primorial_inverses(primorial: &Integer, v: &Vec<u64>) -> Vec<u64> {
         };
         inverses.push(inverse.to_u64().expect("Cannot convert inverse to u64"));
     }
-
-    return inverses;
+    inverses
 }
 
 // Return a random number as a String with d digits
@@ -93,7 +92,7 @@ pub fn get_difficulty_seed(d: u32) -> String {
 
 // Save tuple vector in a text file
 pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usize) {
-    let mut output = File::create(&tuple_file).expect("Cannot create output file");
+    let _ = File::create(tuple_file).expect("Cannot create output file");
 
     let mut file = OpenOptions::new()
         .write(true)
@@ -102,6 +101,9 @@ pub fn save_tuples(tuples: &Vec<Integer>, tuple_file: &String, tuple_type: &usiz
         .expect("Cannot open file");
 
     for tuple in tuples {
-        write!(file, "{}-tuple: {}\n", tuple_type, tuple);
+        match writeln!(file, "{}-tuple: {}", tuple_type, tuple) {
+            Ok(_) => {}
+            Err(e) => panic!("Could not write tuple file {}", e),
+        }
     }
 }

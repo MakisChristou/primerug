@@ -37,7 +37,7 @@ impl Config {
     fn get_pattern_vector(offsets: String) -> Vec<u64> {
         let offsets: String = offsets.chars().filter(|c| !c.is_whitespace()).collect();
 
-        let str_pattern = offsets.split(",");
+        let str_pattern = offsets.split(',');
 
         let mut pattern_vector: Vec<u64> = Vec::new();
 

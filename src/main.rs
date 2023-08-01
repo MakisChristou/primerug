@@ -28,14 +28,14 @@ fn fermat(n: &Integer) -> bool {
     let n_minus_one = n.sub(Integer::from(1));
 
     // a = a^(n-1) % n
-    let a = a.pow_mod(&n_minus_one, &n).unwrap();
+    let a = a.pow_mod(&n_minus_one, n).unwrap();
 
     // a == 1?
     a == 1
 }
 
 #[inline(always)]
-fn is_constellation(n: &Integer, v: &Vec<u64>, miner_stats: &mut Stats) -> bool {
+fn is_constellation(n: &Integer, v: &[u64], miner_stats: &mut Stats) -> bool {
     miner_stats.tuple_counts[0] += 1;
 
     // Check each pattern offset for primality
@@ -56,14 +56,14 @@ fn is_constellation(n: &Integer, v: &Vec<u64>, miner_stats: &mut Stats) -> bool 
 fn get_t2(t: &Integer, primorial: &Integer) -> Integer {
     // T2 = T + p_m - (T % p_m)
     let t_prime: Integer = (t + primorial).into();
-    let ret: Integer = (t.clone() % (primorial)).into();
-    let t_prime: Integer = (t_prime - ret.clone()).into();
+    let ret: Integer = t.clone() % primorial;
+    let t_prime: Integer = t_prime - ret;
     t_prime
 }
 
 fn wheel_factorization(
     tx: &mpsc::Sender<(Vec<u64>, usize)>,
-    factors_table: &Vec<u64>,
+    factors_table: &[u64],
     miner_stats: &mut Stats,
     i: &mut usize,
     t: &Integer,
@@ -88,14 +88,13 @@ fn wheel_factorization(
     }
 
     // first_candidate = T2 + o
-    let first_candidate: Integer = (&t_prime).add(offset).into();
+    let first_candidate: Integer = (&t_prime).add(offset);
 
     let mut tuples: Vec<Integer> = Vec::new();
     let mut factor_offsets: Vec<u64> = Vec::new();
 
     // Remove multiples of f_p
     for (b, mut sieve_word) in factors_table[..sieve_words].iter().copied().enumerate() {
-
         // Bitwise not
         sieve_word = !sieve_word;
 
@@ -130,7 +129,7 @@ fn wheel_factorization(
             .into();
 
         // Fermat Test on candidate t
-        if is_constellation(&t, &v, miner_stats) {
+        if is_constellation(&t, v, miner_stats) {
             println!("Found: {}", t);
 
             tuples.push(t);
@@ -157,7 +156,7 @@ fn get_half_pattern(v: &Vec<u64>) -> Vec<u64> {
 }
 
 #[inline(always)]
-fn get_mi(inverses: &Vec<u64>, p: &u64, i: usize) -> Vec<u64> {
+fn get_mi(inverses: &[u64], p: &u64, i: usize) -> Vec<u64> {
     let mut mi: Vec<u64> = Vec::new();
     mi.resize(4, 0);
 
@@ -183,35 +182,33 @@ fn get_mi(inverses: &Vec<u64>, p: &u64, i: usize) -> Vec<u64> {
 }
 
 #[inline(always)]
-fn add_to_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>, pos: &mut usize, ent: u32) {
+fn add_to_sieve_cache(sieve: &mut [u64], sieve_cache: &mut Vec<u32>, pos: &mut usize, ent: u32) {
     let old: u32 = sieve_cache[*pos];
 
     if old != 0 {
         sieve[(old >> 6) as usize] |= 1 << (old & 63);
     }
 
-    sieve_cache[*pos] = ent as u32;
+    sieve_cache[*pos] = ent;
     (*pos) += 1;
     (*pos) &= sieve_cache.len() - 1;
 }
 
 #[inline(always)]
-fn end_sieve_cache(sieve: &mut Vec<u64>, sieve_cache: &mut Vec<u32>) {
-    for i in 0..sieve_cache.len() {
-        let old: u32 = sieve_cache[i];
-        if old != 0 {
-            sieve[(old >> 6) as usize] |= 1 << (old & 63);
-        }
+fn end_sieve_cache(sieve: &mut [u64], sieve_cache: &mut [u32]) {
+    for &old in sieve_cache.iter().filter(|&&x| x != 0) {
+        sieve[(old >> 6) as usize] |= 1 << (old & 63);
     }
 }
 
+
 // Ported code from Pttn
 fn get_eliminated_factors(
-    factors_to_eliminate: &mut Vec<u32>,
-    factors_table: &mut Vec<u64>,
+    factors_to_eliminate: &mut [u32],
+    factors_table: &mut [u64],
     t: &Integer,
-    primes: &Vec<u64>,
-    inverses: &Vec<u64>,
+    primes: &[u64],
+    inverses: &[u64],
     config: &Config,
 ) {
     let m = config.m;
@@ -226,17 +223,15 @@ fn get_eliminated_factors(
     let t_prime = get_t2(t, primorial);
 
     // first_candidate = T2 + o
-    let first_candidate: Integer = (&t_prime).add(offset).into();
+    let first_candidate: Integer = (&t_prime).add(offset);
 
     let tuple_size = v.len();
 
-    let mut i = 0;
-
-    for p in primes {
+    for (i, p) in primes.iter().enumerate() {
         // Don't panic (I am sure there is a better way to do this)
         if i >= (m as usize) {
             // Calculate multiplicative inverse data
-            let mi: Vec<u64> = get_mi(&inverses, p, i);
+            let mi: Vec<u64> = get_mi(inverses, p, i);
 
             // (first_candidate % p)
             let r = first_candidate.mod_u((*p).try_into().unwrap());
@@ -255,7 +250,6 @@ fn get_eliminated_factors(
                 factors_to_eliminate[tuple_size * i + f] = f_p as u32;
             }
         }
-        i += 1;
     }
 
     let mut sieve_cache_pos: usize = 0;
@@ -263,10 +257,8 @@ fn get_eliminated_factors(
     let mut sieve_cache: Vec<u32> = Vec::new();
     sieve_cache.resize(sieve_cache_size, 0);
 
-    let mut i = 0;
-
     // Process Sieve
-    for p in primes {
+    for (i, p) in primes.iter().enumerate() {
         if i >= m as usize {
             for f in 0..tuple_size {
                 // Process Sieve (i.e. eliminate multiples of f_p)
@@ -284,7 +276,6 @@ fn get_eliminated_factors(
                 factors_to_eliminate[i * tuple_size + f] -= sieve_size as u32;
             }
         }
-        i += 1;
     }
     end_sieve_cache(factors_table, &mut sieve_cache);
 }
@@ -297,12 +288,9 @@ fn receive_last_message(
     let mut thread_messages: HashMap<usize, Vec<u64>> = HashMap::new();
 
     while thread_messages.len() != threads {
-        loop {
-            match rx.try_recv() {
-                Ok(message) => {
-                    thread_messages.insert(message.1, message.0);
-                }
-                Err(_) => break,
+        while thread_messages.len() != threads {
+            while let Ok(message) = rx.try_recv() {
+                thread_messages.insert(message.1, message.0);
             }
         }
     }
@@ -421,7 +409,7 @@ fn main() {
 
         let cloned_pattern_size = extra_config.constellation_pattern.len();
 
-        let total_stats = Stats::gen_total_stats(msgs, start_time.clone(), cloned_pattern_size);
+        let total_stats = Stats::gen_total_stats(msgs, start_time, cloned_pattern_size);
         println!("{}", total_stats.get_human_readable_stats());
 
         thread::sleep(Duration::from_millis(print_stats_interval));

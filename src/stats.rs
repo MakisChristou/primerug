@@ -28,11 +28,8 @@ impl Stats {
         let mut total_counts = vec![0; pattern_size + 1];
 
         for msg in msgs {
-            // println!("{:?}", msg.1);
-            let mut i = 0;
-            for count in msg.1 {
+            for (i, count) in msg.1.into_iter().enumerate() {
                 total_counts[i] += count;
-                i += 1;
             }
         }
 
@@ -46,7 +43,7 @@ impl Stats {
     pub fn cps(&self) -> u64 {
         let elapsed: u64 = self.duration.elapsed().as_secs();
 
-        if self.tuple_counts.len() > 0 && elapsed > 0 {
+        if !self.tuple_counts.is_empty() && elapsed > 0 {
             return self.tuple_counts[0] / (elapsed);
         }
         0
@@ -54,7 +51,7 @@ impl Stats {
 
     // Ratio of tuples with size 1 vs tuples with size 2
     fn r(&self) -> f64 {
-        if self.tuple_counts.len() > 0 {
+        if !self.tuple_counts.is_empty() {
             let single_tuples = self.tuple_counts[0] as f64;
             let twin_tuples = self.tuple_counts[1] as f64;
 
@@ -71,10 +68,10 @@ impl Stats {
         let cps = self.cps() as f64;
 
         if r == 0.0 || cps == 0.0 {
-            return 0.0;
+            0.0
         } else {
             // r^{tuple_len/cps} = estimated duration to find a tuple in seconds
-            return f64::powf(r, tuple_length) / cps;
+            f64::powf(r, tuple_length) / cps
         }
     }
 
@@ -99,15 +96,15 @@ impl Stats {
         let eta_in_seconds = self.get_eta() as u64;
 
         if eta_in_seconds < 60 {
-            return String::from(format!("eta: {} s", eta_in_seconds));
+            format!("eta: {} s", eta_in_seconds)
         } else if eta_in_seconds < 3600 {
-            return String::from(format!("eta: {} min", eta_in_seconds / 60));
+            format!("eta: {} min", eta_in_seconds / 60)
         } else if eta_in_seconds < 86400 {
-            return String::from(format!("eta: {} h", eta_in_seconds / 3600));
+            format!("eta: {} h", eta_in_seconds / 3600)
         } else if eta_in_seconds < 31556952 {
-            return String::from(format!("eta: {} d", eta_in_seconds / 86400));
+            format!("eta: {} d", eta_in_seconds / 86400)
         } else {
-            return String::from(format!("eta: {} y", eta_in_seconds / 31556952));
+            format!("eta: {} y", eta_in_seconds / 31556952)
         }
     }
 
