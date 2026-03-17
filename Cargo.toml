@@ -1,14 +1,16 @@
 [package]
 name = "primerug"
-version = "0.1.0"
+version = "0.2.0"
 description = "A prime k-tuple finder based on the rug crate."
 authors = ["Makis Christou <makis_christou@protonmail.com>"]
 edition = "2021"
 license = "GPL-3.0-or-later"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-rug = "1.19.0"
-rand = "0.8.5"
-clap = { version = "4.1.4", features = ["derive"] }
+rug = "1.26"
+rand = "0.8"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+lto = true
+codegen-units = 1

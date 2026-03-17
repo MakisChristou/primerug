@@ -1,18 +1,12 @@
 use clap::Parser;
+use rand::thread_rng;
+use rug::Assign;
 use rug::Integer;
-use std::collections::HashMap;
-use std::ops::Add;
-use std::ops::Mul;
-use std::ops::Sub;
 use std::process;
-use std::str::FromStr;
-use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use std::time::Instant;
 
-// My own stuff
 mod args;
 mod config;
 mod stats;
@@ -22,422 +16,284 @@ use args::Args;
 use config::Config;
 use stats::Stats;
 
-#[inline(always)]
-fn fermat(n: &Integer) -> bool {
-    let a = Integer::from(2);
-    let n_minus_one = n.sub(Integer::from(1));
+const SIEVE_BITS: u32 = 25;
+const SIEVE_SIZE: usize = 1 << SIEVE_BITS;
+const SIEVE_WORDS: usize = SIEVE_SIZE / 64;
 
-    // a = a^(n-1) % n
-    let a = a.pow_mod(&n_minus_one, n).unwrap();
-
-    // a == 1?
-    a == 1
+/// Pre-allocated GMP integer buffers to eliminate per-candidate heap allocations.
+struct WorkBuffers {
+    factors_to_eliminate: Vec<u32>,
+    factors_table: Vec<u64>,
+    candidate: Integer,
+    offset_buf: Integer,
+    fermat_base: Integer,
+    fermat_exp: Integer,
 }
 
-#[inline(always)]
-fn is_constellation(n: &Integer, v: &[u64], miner_stats: &mut Stats) -> bool {
-    miner_stats.tuple_counts[0] += 1;
+impl WorkBuffers {
+    fn new(pattern_len: usize, num_primes: usize) -> Self {
+        Self {
+            factors_to_eliminate: vec![0u32; pattern_len * num_primes],
+            factors_table: vec![0u64; SIEVE_WORDS],
+            candidate: Integer::new(),
+            offset_buf: Integer::new(),
+            fermat_base: Integer::new(),
+            fermat_exp: Integer::new(),
+        }
+    }
 
-    // Check each pattern offset for primality
-    for (index, offset) in v.iter().enumerate() {
-        // n + offset
-        let c = n.add(offset).into();
+    fn reset_sieve(&mut self) {
+        self.factors_to_eliminate.fill(0);
+        self.factors_table.fill(0);
+    }
+}
 
-        if !fermat(&c) {
+/// Fermat probable-prime test: 2^(n-1) ≡ 1 (mod n).
+#[inline]
+fn fermat(n: &Integer, base: &mut Integer, exp: &mut Integer) -> bool {
+    base.assign(2);
+    exp.assign(n);
+    *exp -= 1u32;
+    base.pow_mod_mut(exp, n).is_ok() && *base == 1
+}
+
+/// Test whether `n` starts a prime constellation matching `pattern`.
+#[inline]
+fn is_constellation(
+    n: &Integer,
+    pattern: &[u64],
+    stats: &Stats,
+    offset_buf: &mut Integer,
+    base: &mut Integer,
+    exp: &mut Integer,
+) -> bool {
+    stats.increment(0);
+
+    for (i, &offset) in pattern.iter().enumerate() {
+        offset_buf.assign(n + offset);
+        if !fermat(offset_buf, base, exp) {
             return false;
         }
-        // Update Tuple Stats
-        // index+1 because we don't update the candidates
-        miner_stats.tuple_counts[index + 1] += 1;
+        stats.increment(i + 1);
     }
     true
 }
 
-fn get_t2(t: &Integer, primorial: &Integer) -> Integer {
-    // T2 = T + p_m - (T % p_m)
-    let t_prime: Integer = (t + primorial).into();
-    let ret: Integer = t.clone() % primorial;
-    let t_prime: Integer = t_prime - ret;
-    t_prime
+/// Round `t` up to the next multiple of `primorial`.
+fn next_primorial_multiple(t: &Integer, primorial: &Integer) -> Integer {
+    let remainder = Integer::from(t % primorial);
+    Integer::from(t + primorial) - remainder
 }
 
-fn wheel_factorization(
-    tx: &mpsc::Sender<(Vec<u64>, usize)>,
-    factors_table: &[u64],
-    miner_stats: &mut Stats,
-    i: &mut usize,
-    t: &Integer,
-    thread_id: usize,
-    config: &Config,
-) -> Vec<Integer> {
-    let offset = Integer::from(config.o);
-    let v = &config.constellation_pattern;
-    let primorial = &config.primorial;
-
-    // Sieve size, should be the same always
-    let sieve_bits = 25;
-    let sieve_size = 1 << sieve_bits;
-    let sieve_words: usize = sieve_size / 64;
-
-    let t_prime = get_t2(t, primorial);
-
-    // Add check that primorial < t
-    if primorial >= t {
-        println!("Pick Smaller primorial number");
-        process::exit(0x0);
+/// Compute multiplicative-inverse multiples for sieve offset calculation.
+#[inline]
+fn compute_mi(inverses: &[u64], p: u64, i: usize) -> [u64; 4] {
+    let m0 = inverses[i];
+    let mut m1 = m0 << 1;
+    if m1 >= p {
+        m1 -= p;
     }
-
-    // first_candidate = T2 + o
-    let first_candidate: Integer = (&t_prime).add(offset);
-
-    let mut tuples: Vec<Integer> = Vec::new();
-    let mut factor_offsets: Vec<u64> = Vec::new();
-
-    // Remove multiples of f_p
-    for (b, mut sieve_word) in factors_table[..sieve_words].iter().copied().enumerate() {
-        // Bitwise not
-        sieve_word = !sieve_word;
-
-        // Eliminate multiples of f_p
-        while sieve_word != 0 {
-            let n_eliminated_until_next: u32 = sieve_word.trailing_zeros();
-            let candidate_index = (b as u32) * 64 + n_eliminated_until_next;
-
-            factor_offsets.push(candidate_index as u64); // this holds all the f's that will be tested later on
-
-            sieve_word &= sieve_word - 1;
-        }
+    let mut m2 = m1 << 1;
+    if m2 >= p {
+        m2 -= p;
     }
-
-    // let mut iterations_per_second = 0;
-    for f in factor_offsets {
-        let cps = miner_stats.cps() as usize;
-        let num_of_digits = cps.to_string().len() as i32;
-        let rounded_number = (cps as f64 / 10.0f64.powi(num_of_digits - 1)) as usize
-            * 10.0f64.powi(num_of_digits - 1) as usize;
-
-        // Print Stats for user selected interval
-        if (rounded_number != 0) && (*i % (rounded_number) == 0) {
-            tx.send((miner_stats.get_tuple_counts(), thread_id))
-                .unwrap();
-            // println!("Sending {:?}", miner_stats.get_tuple_counts());
-        }
-
-        // t = p_m * f + first_candidate
-        let t: Integer = (primorial.mul(&Integer::from(f)))
-            .add(&first_candidate)
-            .into();
-
-        // Fermat Test on candidate t
-        if is_constellation(&t, v, miner_stats) {
-            println!("Found: {}", t);
-
-            tuples.push(t);
-
-            tools::save_tuples(&tuples, &String::from("tuples.txt"), &v.len());
-
-            process::exit(0x0);
-        }
-        *i += 1;
+    let mut m3 = m1 + m2;
+    if m3 >= p {
+        m3 -= p;
     }
-    tuples
+    [m0, m1, m2, m3]
 }
 
-fn get_half_pattern(v: &Vec<u64>) -> Vec<u64> {
-    let mut half_pattern = Vec::new();
-
-    half_pattern.push(0);
-
-    for i in 0..v.len() - 1 {
-        let distanse = v[i + 1] - v[i];
-        half_pattern.push(distanse / 2);
-    }
-    half_pattern
-}
-
-#[inline(always)]
-fn get_mi(inverses: &[u64], p: &u64, i: usize) -> Vec<u64> {
-    let mut mi: Vec<u64> = Vec::new();
-    mi.resize(4, 0);
-
-    mi[0] = inverses[i];
-    mi[1] = mi[0] << 1; // mi[i] = (2*i*mi[0]) % p for i > 0.
-
-    if mi[1] >= *p {
-        mi[1] -= *p;
-    }
-
-    mi[2] = mi[1] << 1;
-
-    if mi[2] >= *p {
-        mi[2] -= *p;
-    }
-
-    mi[3] = mi[1] + mi[2];
-
-    if mi[3] >= *p {
-        mi[3] -= *p;
-    }
-    mi
-}
-
-#[inline(always)]
-fn add_to_sieve_cache(sieve: &mut [u64], sieve_cache: &mut Vec<u32>, pos: &mut usize, ent: u32) {
-    let old: u32 = sieve_cache[*pos];
-
-    if old != 0 {
-        sieve[(old >> 6) as usize] |= 1 << (old & 63);
-    }
-
-    sieve_cache[*pos] = ent;
-    (*pos) += 1;
-    (*pos) &= sieve_cache.len() - 1;
-}
-
-#[inline(always)]
-fn end_sieve_cache(sieve: &mut [u64], sieve_cache: &mut [u32]) {
-    for &old in sieve_cache.iter().filter(|&&x| x != 0) {
-        sieve[(old >> 6) as usize] |= 1 << (old & 63);
-    }
-}
-
-
-// Ported code from Pttn
-fn get_eliminated_factors(
-    factors_to_eliminate: &mut [u32],
-    factors_table: &mut [u64],
-    t: &Integer,
+/// Build the sieve: compute factor offsets and mark composite positions.
+fn build_sieve(
+    bufs: &mut WorkBuffers,
+    target: &Integer,
     primes: &[u64],
     inverses: &[u64],
     config: &Config,
 ) {
-    let m = config.m;
-    let offset = Integer::from(config.o);
-    let v = &config.constellation_pattern;
+    let m = config.m as usize;
+    let tuple_size = config.pattern.len();
+    let half_pattern = &config.half_pattern;
     let primorial = &config.primorial;
 
-    let half_pattern = get_half_pattern(v);
+    let t2 = next_primorial_multiple(target, primorial);
+    let first_candidate = Integer::from(&t2 + config.o);
 
-    let sieve_bits = 25;
-    let sieve_size = 1 << sieve_bits;
-    let t_prime = get_t2(t, primorial);
+    // Compute factor offsets for each prime >= p_m
+    for (i, &p) in primes.iter().enumerate() {
+        if i < m {
+            continue;
+        }
 
-    // first_candidate = T2 + o
-    let first_candidate: Integer = (&t_prime).add(offset);
+        let mi = compute_mi(inverses, p, i);
+        let r = first_candidate.mod_u(p.try_into().unwrap()) as u64;
+        let mut f_p = ((p - r) * inverses[i]) % p;
 
-    let tuple_size = v.len();
+        bufs.factors_to_eliminate[tuple_size * i] = f_p as u32;
 
-    for (i, p) in primes.iter().enumerate() {
-        // Don't panic (I am sure there is a better way to do this)
-        if i >= (m as usize) {
-            // Calculate multiplicative inverse data
-            let mi: Vec<u64> = get_mi(inverses, p, i);
-
-            // (first_candidate % p)
-            let r = first_candidate.mod_u((*p).try_into().unwrap());
-
-            // f_p = ((p - ((T2 + o) % p))*p_m_inverse) % p
-            let mut f_p = (((*p) - (r as u64)) * inverses[i]) % (*p);
-
-            factors_to_eliminate[tuple_size * i] = f_p as u32;
-
-            for f in 1..tuple_size {
-                if f_p < mi[half_pattern[f] as usize] {
-                    f_p += *p;
-                }
-
-                f_p -= mi[half_pattern[f] as usize];
-                factors_to_eliminate[tuple_size * i + f] = f_p as u32;
+        for f in 1..tuple_size {
+            let hp = mi[half_pattern[f] as usize];
+            if f_p < hp {
+                f_p += p;
             }
+            f_p -= hp;
+            bufs.factors_to_eliminate[tuple_size * i + f] = f_p as u32;
         }
     }
 
-    let mut sieve_cache_pos: usize = 0;
-    let sieve_cache_size: usize = 32;
-    let mut sieve_cache: Vec<u32> = Vec::new();
-    sieve_cache.resize(sieve_cache_size, 0);
+    // Mark composite positions using a write-combining cache
+    let cache_size = 32usize;
+    let mut cache = vec![0u32; cache_size];
+    let mut cache_pos = 0usize;
 
-    // Process Sieve
-    for (i, p) in primes.iter().enumerate() {
-        if i >= m as usize {
-            for f in 0..tuple_size {
-                // Process Sieve (i.e. eliminate multiples of f_p)
-                while factors_to_eliminate[i * tuple_size + f] < sieve_size as u32 {
-                    // Eliminate factor
-                    add_to_sieve_cache(
-                        factors_table,
-                        &mut sieve_cache,
-                        &mut sieve_cache_pos,
-                        factors_to_eliminate[i * tuple_size + f],
-                    );
+    for (i, &p) in primes.iter().enumerate() {
+        if i < m {
+            continue;
+        }
+        for f in 0..tuple_size {
+            let idx = i * tuple_size + f;
+            while bufs.factors_to_eliminate[idx] < SIEVE_SIZE as u32 {
+                let ent = bufs.factors_to_eliminate[idx];
 
-                    factors_to_eliminate[i * tuple_size + f] += *p as u32;
+                // Flush old cache entry to the sieve
+                let old = cache[cache_pos];
+                if old != 0 {
+                    bufs.factors_table[(old >> 6) as usize] |= 1 << (old & 63);
                 }
-                factors_to_eliminate[i * tuple_size + f] -= sieve_size as u32;
+                cache[cache_pos] = ent;
+                cache_pos = (cache_pos + 1) & (cache_size - 1);
+
+                bufs.factors_to_eliminate[idx] += p as u32;
             }
+            bufs.factors_to_eliminate[idx] -= SIEVE_SIZE as u32;
         }
     }
-    end_sieve_cache(factors_table, &mut sieve_cache);
+
+    // Flush remaining cache entries
+    for &old in &cache {
+        if old != 0 {
+            bufs.factors_table[(old >> 6) as usize] |= 1 << (old & 63);
+        }
+    }
 }
 
-// Blocks until it receives the tuple counts from each thread
-fn receive_last_message(
-    rx: &mpsc::Receiver<(Vec<u64>, usize)>,
-    threads: usize,
-) -> HashMap<usize, Vec<u64>> {
-    let mut thread_messages: HashMap<usize, Vec<u64>> = HashMap::new();
+/// Iterate surviving sieve candidates and test for prime constellations.
+fn test_candidates(bufs: &mut WorkBuffers, target: &Integer, config: &Config, stats: &Stats) {
+    let primorial = &config.primorial;
+    let t2 = next_primorial_multiple(target, primorial);
+    let first_candidate = Integer::from(&t2 + config.o);
 
-    while thread_messages.len() != threads {
-        while thread_messages.len() != threads {
-            while let Ok(message) = rx.try_recv() {
-                thread_messages.insert(message.1, message.0);
-            }
-        }
+    if primorial >= target {
+        eprintln!("Error: primorial is >= target. Pick a smaller primorial number.");
+        process::exit(1);
     }
 
-    thread_messages
+    for (word_idx, &sieve_word) in bufs.factors_table[..SIEVE_WORDS].iter().enumerate() {
+        let mut survivors = !sieve_word;
+
+        while survivors != 0 {
+            let bit = survivors.trailing_zeros();
+            let f = word_idx as u32 * 64 + bit;
+
+            // candidate = primorial * f + first_candidate
+            bufs.candidate.assign(primorial * f);
+            bufs.candidate += &first_candidate;
+
+            if is_constellation(
+                &bufs.candidate,
+                &config.pattern,
+                stats,
+                &mut bufs.offset_buf,
+                &mut bufs.fermat_base,
+                &mut bufs.fermat_exp,
+            ) {
+                println!("Found: {}", bufs.candidate);
+                tools::save_tuples(
+                    &[bufs.candidate.clone()],
+                    "tuples.txt",
+                    config.pattern.len(),
+                );
+                process::exit(0);
+            }
+
+            survivors &= survivors - 1;
+        }
+    }
 }
 
-fn thread_loop(
-    config: Arc<Config>,
-    primes: Arc<Vec<u64>>,
-    inverses: Arc<Vec<u64>>,
-    tx: mpsc::Sender<(Vec<u64>, usize)>,
-    thread_id: usize,
-) {
-    let sieve_bits = 25;
-    let sieve_size = 1 << sieve_bits;
-    let sieve_words: usize = sieve_size / 64;
-
-    // Allocate memory for sieve
-    let mut factors_to_eliminate: Vec<u32> =
-        vec![0; config.constellation_pattern.len() * primes.len()];
-    let mut factors_table: Vec<u64> = vec![0; sieve_words];
-
-    let mut i = 0;
-
-    let mut miner_stats = Stats::new(config.constellation_pattern.len());
+/// Main loop for a single worker thread.
+fn worker_loop(config: &Config, primes: &[u64], inverses: &[u64], stats: &Stats) {
+    let mut bufs = WorkBuffers::new(config.pattern.len(), primes.len());
+    let mut rng = thread_rng();
 
     loop {
-        // Here we generate a difficulty seed T
-        let t_str: String = tools::get_difficulty_seed(config.d);
-        let t = Integer::from_str(&t_str).expect("Invalid difficulty seed");
+        let target = tools::random_target(config.digits, &mut rng);
 
-        // Reset Sieve
-        factors_to_eliminate.iter_mut().for_each(|x| *x = 0);
-        factors_table.iter_mut().for_each(|x| *x = 0);
-
-        // Get factors f_p and their multiples (i.e. generate sieve)
-        get_eliminated_factors(
-            &mut factors_to_eliminate,
-            &mut factors_table,
-            &t,
-            &primes,
-            &inverses,
-            &config,
-        );
-
-        // Test remaining candidates from the sieve
-        wheel_factorization(
-            &tx,
-            &factors_table,
-            &mut miner_stats,
-            &mut i,
-            &t,
-            thread_id,
-            &config,
-        );
+        bufs.reset_sieve();
+        build_sieve(&mut bufs, &target, primes, inverses, config);
+        test_candidates(&mut bufs, &target, config, stats);
     }
 }
 
 fn main() {
     let args = Args::parse();
 
-    // Chosen or default settings
     println!("Tuple Digits: {}", args.digits);
     println!("Primorial Number: {}", args.m);
     println!("Primorial Offset: {}", args.o);
     println!("Constellation Pattern: {}", args.pattern);
-    println!("Prime Table Limit: {}", args.tablelimit);
-    println!("Stats Interval: {}", args.interval);
+    println!("Prime Table Limit: {}", args.table_limit);
+    println!("Stats Interval: {}s", args.stats_interval);
     println!("Threads: {}", args.threads);
 
-    // let config = Config::new(150, String::from("0, 2, 6, 8, 12, 18, 20, 26"), 58, 114023297140211, 7275957);
+    let primorial = tools::primorial(args.m);
 
-    let p_m = tools::get_primorial(args.m);
-
-    let config = Config::new(
+    let config = Arc::new(Config::new(
         args.digits,
-        args.pattern,
+        &args.pattern,
         args.m,
         args.o,
-        args.tablelimit,
+        args.table_limit,
         args.threads,
-        p_m.clone(),
-    );
-    let extra_config = config.clone();
+        primorial.clone(),
+    ));
 
     println!(
-        "Generating primetable of the first primes up to {} with sieve of Eratosthenes...",
-        args.tablelimit
+        "Generating prime table up to {} with Sieve of Eratosthenes...",
+        args.table_limit
     );
-    let primes = tools::generate_primetable(config.prime_table_limit);
+    let primes = Arc::new(tools::generate_prime_table(config.prime_table_limit));
 
     println!("Calculating primorial inverse data...");
-    let inverses = tools::get_primorial_inverses(&p_m, &primes);
+    let inverses = Arc::new(tools::primorial_inverses(&primorial, &primes));
 
-    println!("Done, starting sieving/primality testing loop...");
+    let stats = Arc::new(Stats::new(config.pattern.len()));
 
-    // Multiple producer, single consumer channel
-    let (tx, rx) = mpsc::channel::<(Vec<u64>, usize)>();
+    println!("Done. Starting sieve/primality testing loop...");
 
-    // For printing thread
-    let print_stats_interval = (args.interval * 1000) as u64;
-    let start_time = Instant::now();
-    let threads = config.threads;
-
-    // For worker threads
-    let shared_config = Arc::new(config);
-    let shared_primes = Arc::new(primes);
-    let shared_inverses = Arc::new(inverses);
-
-    let mut handles = Vec::new();
-
-    // Stat printing thread
+    // Stats printing thread
+    let stats_ref = Arc::clone(&stats);
+    let interval = args.stats_interval;
     thread::spawn(move || loop {
-        let msgs = receive_last_message(&rx, threads);
-
-        let cloned_pattern_size = extra_config.constellation_pattern.len();
-
-        let total_stats = Stats::gen_total_stats(msgs, start_time, cloned_pattern_size);
-        println!("{}", total_stats.get_human_readable_stats());
-
-        thread::sleep(Duration::from_millis(print_stats_interval));
+        thread::sleep(Duration::from_secs(interval));
+        println!("{stats_ref}");
     });
 
-    // Spawn worker threads
-    for i in 0..threads {
-        let tx_i = tx.clone();
+    // Worker threads
+    let mut handles = Vec::with_capacity(args.threads);
+    for _ in 0..args.threads {
+        let config = Arc::clone(&config);
+        let primes = Arc::clone(&primes);
+        let inverses = Arc::clone(&inverses);
+        let stats = Arc::clone(&stats);
 
-        let shared_config_value = Arc::clone(&shared_config);
-        let shared_primes_value = Arc::clone(&shared_primes);
-        let shared_inverses_value = Arc::clone(&shared_inverses);
-
-        let t = thread::spawn(move || {
-            thread_loop(
-                shared_config_value,
-                shared_primes_value,
-                shared_inverses_value,
-                tx_i,
-                i,
-            );
-        });
-
-        handles.push(t);
+        handles.push(thread::spawn(move || {
+            worker_loop(&config, &primes, &inverses, &stats);
+        }));
     }
 
-    // Wait for threads to finish
     for handle in handles {
-        handle.join().expect("Error joining worker thread");
+        handle.join().expect("worker thread panicked");
     }
 }

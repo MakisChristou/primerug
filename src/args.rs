@@ -1,10 +1,10 @@
 use clap::Parser;
 
-/// A prime k-tuple finder based on the rug Rust crate.
+/// A prime k-tuple finder based on the rug crate.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// Size of the tuple in decimal digits
+    /// Number of decimal digits in the target
     #[arg(short, long)]
     pub digits: u32,
 
@@ -16,19 +16,19 @@ pub struct Args {
     #[arg(short, long, default_value_t = 97)]
     pub o: u64,
 
-    /// Desired pattern
-    #[arg(short, long, default_value_t = String::from("0, 4, 6, 10, 12, 16"))]
+    /// Constellation pattern (comma-separated offsets)
+    #[arg(short, long, default_value = "0, 4, 6, 10, 12, 16")]
     pub pattern: String,
 
-    /// Desired pattern
-    #[arg(short, long, default_value_t = 100_000)]
-    pub tablelimit: u64,
+    /// Upper limit for prime table generation
+    #[arg(short = 'l', long = "tablelimit", default_value_t = 100_000)]
+    pub table_limit: u64,
 
-    /// Stats interval
-    #[arg(short, long, default_value_t = 5)]
-    pub interval: usize,
+    /// Stats printing interval in seconds
+    #[arg(short = 's', long = "interval", default_value_t = 5)]
+    pub stats_interval: u64,
 
-    /// Threads
+    /// Number of worker threads
     #[arg(short, long, default_value_t = 1)]
     pub threads: usize,
 }

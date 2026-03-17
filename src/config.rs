@@ -2,8 +2,9 @@ use rug::Integer;
 
 #[derive(Clone)]
 pub struct Config {
-    pub d: u32,
-    pub constellation_pattern: Vec<u64>,
+    pub digits: u32,
+    pub pattern: Vec<u64>,
+    pub half_pattern: Vec<u64>,
     pub m: u64,
     pub o: u64,
     pub prime_table_limit: u64,
@@ -13,19 +14,20 @@ pub struct Config {
 
 impl Config {
     pub fn new(
-        d: u32,
-        constellation_pattern: String,
+        digits: u32,
+        pattern_str: &str,
         m: u64,
         o: u64,
         prime_table_limit: u64,
         threads: usize,
         primorial: Integer,
-    ) -> Config {
-        let v = Self::get_pattern_vector(constellation_pattern);
-
-        Config {
-            d,
-            constellation_pattern: v,
+    ) -> Self {
+        let pattern = Self::parse_pattern(pattern_str);
+        let half_pattern = Self::compute_half_pattern(&pattern);
+        Self {
+            digits,
+            pattern,
+            half_pattern,
             m,
             o,
             prime_table_limit,
@@ -34,17 +36,17 @@ impl Config {
         }
     }
 
-    fn get_pattern_vector(offsets: String) -> Vec<u64> {
-        let offsets: String = offsets.chars().filter(|c| !c.is_whitespace()).collect();
+    fn parse_pattern(s: &str) -> Vec<u64> {
+        s.split(',')
+            .map(|p| p.trim().parse().expect("invalid pattern offset"))
+            .collect()
+    }
 
-        let str_pattern = offsets.split(',');
-
-        let mut pattern_vector: Vec<u64> = Vec::new();
-
-        for o in str_pattern {
-            pattern_vector.push(o.parse::<u64>().expect("Invalid patern"));
+    fn compute_half_pattern(pattern: &[u64]) -> Vec<u64> {
+        let mut half = vec![0u64];
+        for w in pattern.windows(2) {
+            half.push((w[1] - w[0]) / 2);
         }
-
-        pattern_vector
+        half
     }
 }
