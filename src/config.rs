@@ -10,6 +10,7 @@ pub struct Config {
     pub prime_table_limit: u64,
     pub threads: usize,
     pub primorial: Integer,
+    pub sieve_iterations: u32,
 }
 
 impl Config {
@@ -21,6 +22,7 @@ impl Config {
         prime_table_limit: u64,
         threads: usize,
         primorial: Integer,
+        sieve_iterations: u32,
     ) -> Self {
         let pattern = Self::parse_pattern(pattern_str);
         let half_pattern = Self::compute_half_pattern(&pattern);
@@ -33,6 +35,7 @@ impl Config {
             prime_table_limit,
             threads,
             primorial,
+            sieve_iterations,
         }
     }
 

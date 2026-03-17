@@ -7,6 +7,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+
 mod args;
 mod config;
 mod stats;
@@ -40,11 +43,6 @@ impl WorkBuffers {
             fermat_base: Integer::new(),
             fermat_exp: Integer::new(),
         }
-    }
-
-    fn reset_sieve(&mut self) {
-        self.factors_to_eliminate.fill(0);
-        self.factors_table.fill(0);
     }
 }
 
@@ -104,10 +102,11 @@ fn compute_mi(inverses: &[u64], p: u64, i: usize) -> [u64; 4] {
     [m0, m1, m2, m3]
 }
 
-/// Build the sieve: compute factor offsets and mark composite positions.
-fn build_sieve(
-    bufs: &mut WorkBuffers,
-    target: &Integer,
+/// Compute factor offsets for each prime (the expensive mod_u step).
+/// This is the "presieve" — only needs to run once per target.
+fn compute_factor_offsets(
+    factors: &mut [u32],
+    first_candidate: &Integer,
     primes: &[u64],
     inverses: &[u64],
     config: &Config,
@@ -115,12 +114,7 @@ fn build_sieve(
     let m = config.m as usize;
     let tuple_size = config.pattern.len();
     let half_pattern = &config.half_pattern;
-    let primorial = &config.primorial;
 
-    let t2 = next_primorial_multiple(target, primorial);
-    let first_candidate = Integer::from(&t2 + config.o);
-
-    // Compute factor offsets for each prime >= p_m
     for (i, &p) in primes.iter().enumerate() {
         if i < m {
             continue;
@@ -130,7 +124,7 @@ fn build_sieve(
         let r = first_candidate.mod_u(p.try_into().unwrap()) as u64;
         let mut f_p = ((p - r) * inverses[i]) % p;
 
-        bufs.factors_to_eliminate[tuple_size * i] = f_p as u32;
+        factors[tuple_size * i] = f_p as u32;
 
         for f in 1..tuple_size {
             let hp = mi[half_pattern[f] as usize];
@@ -138,56 +132,118 @@ fn build_sieve(
                 f_p += p;
             }
             f_p -= hp;
-            bufs.factors_to_eliminate[tuple_size * i + f] = f_p as u32;
+            factors[tuple_size * i + f] = f_p as u32;
+        }
+    }
+}
+
+/// Mark composite positions in the sieve.
+///
+/// Hybrid approach:
+/// - Small primes (< SEGMENT_SIZE): processed in L1-sized segments for cache locality
+/// - Large primes (>= SEGMENT_SIZE): write-combining cache with prefetch for scattered marks
+fn mark_composites(
+    factors: &mut [u32],
+    sieve: &mut [u64],
+    primes: &[u64],
+    config: &Config,
+) {
+    const SEGMENT_BITS: u32 = 18; // 2^18 = 256K positions = 32KB of sieve (fits L1)
+    const SEGMENT_SIZE: u32 = 1 << SEGMENT_BITS;
+
+    let m = config.m as usize;
+    let tuple_size = config.pattern.len();
+    let num_segments = SIEVE_SIZE as u32 / SEGMENT_SIZE;
+
+    // Find the split point: first prime >= SEGMENT_SIZE
+    let large_start = primes
+        .iter()
+        .position(|&p| p >= SEGMENT_SIZE as u64)
+        .unwrap_or(primes.len());
+
+    // Phase 1: Small primes — segmented for L1 cache locality
+    let sieve_ptr = sieve.as_mut_ptr();
+    for seg in 0..num_segments {
+        let seg_end = (seg + 1) * SEGMENT_SIZE;
+
+        for (i, &p) in primes[m..large_start].iter().enumerate() {
+            let i = i + m;
+            let p32 = p as u32;
+            for f in 0..tuple_size {
+                let idx = i * tuple_size + f;
+                let mut pos = factors[idx];
+                while pos < seg_end {
+                    // SAFETY: pos < SIEVE_SIZE, so pos >> 6 < SIEVE_WORDS = sieve.len()
+                    unsafe {
+                        let word = &mut *sieve_ptr.add((pos >> 6) as usize);
+                        *word |= 1u64 << (pos & 63);
+                    }
+                    pos += p32;
+                }
+                factors[idx] = pos;
+            }
         }
     }
 
-    // Mark composite positions using a write-combining cache
+    // Phase 2: Large primes — write-combining cache with prefetch
     let cache_size = 32usize;
-    let mut cache = vec![0u32; cache_size];
+    let mut cache = [0u32; 32];
     let mut cache_pos = 0usize;
 
-    for (i, &p) in primes.iter().enumerate() {
-        if i < m {
-            continue;
-        }
+    for (i, &p) in primes[large_start..].iter().enumerate() {
+        let i = i + large_start;
+        let p32 = p as u32;
         for f in 0..tuple_size {
             let idx = i * tuple_size + f;
-            while bufs.factors_to_eliminate[idx] < SIEVE_SIZE as u32 {
-                let ent = bufs.factors_to_eliminate[idx];
+            while factors[idx] < SIEVE_SIZE as u32 {
+                let ent = factors[idx];
 
-                // Flush old cache entry to the sieve
                 let old = cache[cache_pos];
                 if old != 0 {
-                    bufs.factors_table[(old >> 6) as usize] |= 1 << (old & 63);
+                    sieve[(old >> 6) as usize] |= 1u64 << (old & 63);
                 }
                 cache[cache_pos] = ent;
                 cache_pos = (cache_pos + 1) & (cache_size - 1);
 
-                bufs.factors_to_eliminate[idx] += p as u32;
+                #[cfg(target_arch = "x86_64")]
+                unsafe {
+                    _mm_prefetch(
+                        sieve.as_ptr().add((ent >> 6) as usize) as *const i8,
+                        _MM_HINT_T0,
+                    );
+                }
+
+                factors[idx] += p32;
             }
-            bufs.factors_to_eliminate[idx] -= SIEVE_SIZE as u32;
+            factors[idx] -= SIEVE_SIZE as u32;
         }
     }
 
     // Flush remaining cache entries
     for &old in &cache {
         if old != 0 {
-            bufs.factors_table[(old >> 6) as usize] |= 1 << (old & 63);
+            sieve[(old >> 6) as usize] |= 1u64 << (old & 63);
+        }
+    }
+
+    // Carry over small prime offsets for next sieve iteration
+    for (i, _) in primes[m..large_start].iter().enumerate() {
+        let i = i + m;
+        for f in 0..tuple_size {
+            let idx = i * tuple_size + f;
+            factors[idx] -= SIEVE_SIZE as u32;
         }
     }
 }
 
 /// Iterate surviving sieve candidates and test for prime constellations.
-fn test_candidates(bufs: &mut WorkBuffers, target: &Integer, config: &Config, stats: &Stats) {
+fn test_candidates(
+    bufs: &mut WorkBuffers,
+    first_candidate: &Integer,
+    config: &Config,
+    stats: &Stats,
+) {
     let primorial = &config.primorial;
-    let t2 = next_primorial_multiple(target, primorial);
-    let first_candidate = Integer::from(&t2 + config.o);
-
-    if primorial >= target {
-        eprintln!("Error: primorial is >= target. Pick a smaller primorial number.");
-        process::exit(1);
-    }
 
     for (word_idx, &sieve_word) in bufs.factors_table[..SIEVE_WORDS].iter().enumerate() {
         let mut survivors = !sieve_word;
@@ -198,7 +254,7 @@ fn test_candidates(bufs: &mut WorkBuffers, target: &Integer, config: &Config, st
 
             // candidate = primorial * f + first_candidate
             bufs.candidate.assign(primorial * f);
-            bufs.candidate += &first_candidate;
+            bufs.candidate += first_candidate;
 
             if is_constellation(
                 &bufs.candidate,
@@ -226,37 +282,99 @@ fn test_candidates(bufs: &mut WorkBuffers, target: &Integer, config: &Config, st
 fn worker_loop(config: &Config, primes: &[u64], inverses: &[u64], stats: &Stats) {
     let mut bufs = WorkBuffers::new(config.pattern.len(), primes.len());
     let mut rng = thread_rng();
+    let sieve_chunk = Integer::from(&config.primorial * SIEVE_SIZE as u64);
 
     loop {
         let target = tools::random_target(config.digits, &mut rng);
+        let t2 = next_primorial_multiple(&target, &config.primorial);
+        let base_candidate = Integer::from(&t2 + config.o);
 
-        bufs.reset_sieve();
-        build_sieve(&mut bufs, &target, primes, inverses, config);
-        test_candidates(&mut bufs, &target, config, stats);
+        if &config.primorial >= &target {
+            eprintln!("Error: primorial is >= target. Pick a smaller primorial number.");
+            process::exit(1);
+        }
+
+        // Compute factor offsets once per target (the expensive mod_u presieve)
+        bufs.factors_to_eliminate.fill(0);
+        bufs.factors_table.fill(0);
+        compute_factor_offsets(
+            &mut bufs.factors_to_eliminate,
+            &base_candidate,
+            primes,
+            inverses,
+            config,
+        );
+
+        // First iteration: mark composites and test
+        mark_composites(
+            &mut bufs.factors_to_eliminate,
+            &mut bufs.factors_table,
+            primes,
+            config,
+        );
+        test_candidates(&mut bufs, &base_candidate, config, stats);
+
+        // Subsequent iterations: reuse carried-over factor offsets
+        for iter in 1..config.sieve_iterations {
+            bufs.factors_table.fill(0);
+            mark_composites(
+                &mut bufs.factors_to_eliminate,
+                &mut bufs.factors_table,
+                primes,
+                config,
+            );
+
+            let iter_candidate = Integer::from(&sieve_chunk * iter) + &base_candidate;
+            test_candidates(&mut bufs, &iter_candidate, config, stats);
+        }
     }
 }
 
 fn main() {
     let args = Args::parse();
 
+    // Parse pattern early so we can use it for auto-selection
+    let pattern: Vec<u64> = args
+        .pattern
+        .split(',')
+        .map(|p| p.trim().parse().expect("invalid pattern offset"))
+        .collect();
+
+    // Auto-select primorial number if not specified
+    let m = if args.m == 0 {
+        tools::auto_primorial_number(args.digits, args.sieve_iterations, SIEVE_SIZE as u64)
+    } else {
+        args.m
+    };
+
+    let primorial = tools::primorial(m);
+
+    // Auto-select primorial offset if not specified
+    let o = if args.o == 0 {
+        let small_primes = tools::generate_prime_table(m * m + 1);
+        tools::find_primorial_offset(&pattern, &small_primes, m)
+    } else {
+        args.o
+    };
+
     println!("Tuple Digits: {}", args.digits);
-    println!("Primorial Number: {}", args.m);
-    println!("Primorial Offset: {}", args.o);
+    println!("Primorial Number: {} (p{}#)", m, m);
+    println!("Primorial Offset: {}", o);
     println!("Constellation Pattern: {}", args.pattern);
     println!("Prime Table Limit: {}", args.table_limit);
     println!("Stats Interval: {}s", args.stats_interval);
     println!("Threads: {}", args.threads);
-
-    let primorial = tools::primorial(args.m);
+    println!("Sieve Iterations: {}", args.sieve_iterations);
 
     let config = Arc::new(Config::new(
         args.digits,
         &args.pattern,
-        args.m,
-        args.o,
+        m,
+        o,
         args.table_limit,
         args.threads,
         primorial.clone(),
+        args.sieve_iterations,
     ));
 
     println!(

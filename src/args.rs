@@ -8,12 +8,12 @@ pub struct Args {
     #[arg(short, long)]
     pub digits: u32,
 
-    /// Primorial number
-    #[arg(short, long, default_value_t = 3)]
+    /// Primorial number (0 = auto-select based on digit count)
+    #[arg(short, long, default_value_t = 0)]
     pub m: u64,
 
-    /// Primorial offset
-    #[arg(short, long, default_value_t = 97)]
+    /// Primorial offset (0 = auto-select based on pattern)
+    #[arg(short, long, default_value_t = 0)]
     pub o: u64,
 
     /// Constellation pattern (comma-separated offsets)
@@ -31,4 +31,8 @@ pub struct Args {
     /// Number of worker threads
     #[arg(short, long, default_value_t = 1)]
     pub threads: usize,
+
+    /// Number of sieve iterations per target (amortizes presieve cost)
+    #[arg(short = 'i', long = "sieve-iterations", default_value_t = 10)]
+    pub sieve_iterations: u32,
 }

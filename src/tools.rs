@@ -70,6 +70,57 @@ pub fn random_target(digits: u32, rng: &mut impl Rng) -> Integer {
     s.parse::<Integer>().unwrap()
 }
 
+/// Auto-select the primorial number for a given digit count and sieve parameters.
+///
+/// Mirrors rieMiner's logic: choose the largest primorial such that
+/// `primorial * sieve_iterations * sieve_size < 10^digits`.
+/// This ensures candidates don't overflow the target digit range.
+pub fn auto_primorial_number(digits: u32, sieve_iterations: u32, sieve_size: u64) -> u64 {
+    let factor_max = sieve_iterations as u64 * sieve_size;
+
+    // target_limit = 10^digits / factor_max
+    let target = Integer::from(Integer::u_pow_u(10, digits));
+    let limit = Integer::from(&target / factor_max);
+
+    // Generate enough primes for primorial selection
+    let primes = generate_prime_table(1_000_000);
+
+    let mut primorial = Integer::from(1);
+    for (i, &p) in primes.iter().enumerate() {
+        if i == 0 {
+            continue; // skip the "1" entry
+        }
+        let next = Integer::from(&primorial * p);
+        if next >= limit {
+            return i as u64; // primorial index (for the primorial() function)
+        }
+        primorial = next;
+    }
+    primes.len() as u64 - 1
+}
+
+/// Find a valid primorial offset for the given pattern.
+///
+/// The offset `o` must satisfy: `o + d` is coprime to the primorial for every
+/// pattern element `d`. This ensures no pattern element is trivially composite.
+pub fn find_primorial_offset(pattern: &[u64], primes: &[u64], m: u64) -> u64 {
+    // Collect the small primes that divide the primorial (skip the "1" entry)
+    let small_primes: Vec<u64> = primes[1..=m as usize].iter().copied().collect();
+
+    'outer: for o in 1u64.. {
+        for &d in pattern {
+            let candidate = o + d;
+            for &p in &small_primes {
+                if candidate % p == 0 {
+                    continue 'outer;
+                }
+            }
+        }
+        return o;
+    }
+    unreachable!()
+}
+
 /// Append found tuples to a file.
 pub fn save_tuples(tuples: &[Integer], path: &str, tuple_len: usize) {
     let mut file = File::options()
