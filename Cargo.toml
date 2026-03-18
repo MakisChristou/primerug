@@ -10,6 +10,7 @@ license = "GPL-3.0-or-later"
 rug = "1.26"
 rand = "0.8"
 clap = { version = "4", features = ["derive"] }
+bytemuck = { version = "1", features = ["derive"] }
 
 [profile.release]
 lto = true

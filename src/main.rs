@@ -12,12 +12,15 @@ use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
 
 mod args;
 mod config;
+mod gpu_client;
 mod stats;
 mod tools;
 
 use args::Args;
 use config::Config;
+use gpu_client::GpuClient;
 use stats::Stats;
+use rug::integer::Order;
 
 const SIEVE_BITS: u32 = 25;
 const SIEVE_SIZE: usize = 1 << SIEVE_BITS;
@@ -278,6 +281,195 @@ fn test_candidates(
     }
 }
 
+/// Collect sieve survivors and send to GPU for constellation testing.
+fn test_candidates_gpu(
+    bufs: &mut WorkBuffers,
+    first_candidate: &Integer,
+    config: &Config,
+    stats: &Stats,
+    gpu: &mut GpuClient,
+    gpu_batch_size: u32,
+    limb_count: u16,
+    batch_limbs: &mut Vec<u32>,
+    batch_candidates: &mut Vec<Integer>,
+) {
+    let primorial = &config.primorial;
+    batch_limbs.clear();
+    batch_candidates.clear();
+
+    // Collect survivors from sieve into batch
+    for (word_idx, &sieve_word) in bufs.factors_table[..SIEVE_WORDS].iter().enumerate() {
+        let mut survivors = !sieve_word;
+        while survivors != 0 {
+            let bit = survivors.trailing_zeros();
+            let f = word_idx as u32 * 64 + bit;
+
+            bufs.candidate.assign(primorial * f);
+            bufs.candidate += first_candidate;
+
+            // Extract limbs in LSF u32 order
+            let limbs = bufs.candidate.to_digits::<u32>(Order::Lsf);
+            // Pad to fixed limb_count
+            batch_limbs.extend_from_slice(&limbs);
+            for _ in limbs.len()..limb_count as usize {
+                batch_limbs.push(0);
+            }
+            batch_candidates.push(bufs.candidate.clone());
+
+            survivors &= survivors - 1;
+
+            // Submit when batch is full
+            if batch_candidates.len() as u32 >= gpu_batch_size {
+                submit_gpu_batch(
+                    batch_limbs,
+                    batch_candidates,
+                    config,
+                    stats,
+                    gpu,
+                    limb_count,
+                );
+            }
+        }
+    }
+
+    // Submit remaining candidates
+    if !batch_candidates.is_empty() {
+        submit_gpu_batch(
+            batch_limbs,
+            batch_candidates,
+            config,
+            stats,
+            gpu,
+            limb_count,
+        );
+    }
+}
+
+fn submit_gpu_batch(
+    batch_limbs: &mut Vec<u32>,
+    batch_candidates: &mut Vec<Integer>,
+    config: &Config,
+    stats: &Stats,
+    gpu: &mut GpuClient,
+    limb_count: u16,
+) {
+    let num = batch_candidates.len() as u32;
+    stats.increment_by(0, num as u64);
+
+    match gpu.submit_batch(batch_limbs, &config.pattern, limb_count, num) {
+        Ok(result) => {
+            // Update per-round stats from GPU results
+            for (i, &count) in result.round_counts.iter().enumerate() {
+                stats.increment_by(i + 1, count as u64);
+            }
+
+            for &idx in &result.survivor_indices {
+                if let Some(cand) = batch_candidates.get(idx as usize) {
+                    println!("Found: {cand}");
+                    tools::save_tuples(
+                        &[cand.clone()],
+                        "tuples.txt",
+                        config.pattern.len(),
+                    );
+                    process::exit(0);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("GPU batch error: {e}");
+        }
+    }
+
+    batch_limbs.clear();
+    batch_candidates.clear();
+}
+
+/// Main loop for a GPU-accelerated worker thread.
+fn worker_loop_gpu(
+    config: &Config,
+    primes: &[u64],
+    inverses: &[u64],
+    stats: &Stats,
+    gpu_socket: &str,
+    gpu_batch_size: u32,
+) {
+    let mut bufs = WorkBuffers::new(config.pattern.len(), primes.len());
+    let mut rng = thread_rng();
+    let sieve_chunk = Integer::from(&config.primorial * SIEVE_SIZE as u64);
+
+    // Compute limb_count from digit count: digits → bits → u32 limbs, rounded up to 64
+    let bits = (config.digits as f64 * std::f64::consts::LOG2_10).ceil() as u32 + 64;
+    let limb_count = ((bits + 31) / 32).max(64) as u16;
+
+    let mut gpu = GpuClient::connect(gpu_socket).unwrap_or_else(|e| {
+        panic!("Failed to connect to GPU service at {gpu_socket}: {e}");
+    });
+
+    let mut batch_limbs = Vec::with_capacity(gpu_batch_size as usize * limb_count as usize);
+    let mut batch_candidates = Vec::with_capacity(gpu_batch_size as usize);
+
+    loop {
+        let target = tools::random_target(config.digits, &mut rng);
+        let t2 = next_primorial_multiple(&target, &config.primorial);
+        let base_candidate = Integer::from(&t2 + config.o);
+
+        if &config.primorial >= &target {
+            eprintln!("Error: primorial is >= target. Pick a smaller primorial number.");
+            process::exit(1);
+        }
+
+        bufs.factors_to_eliminate.fill(0);
+        bufs.factors_table.fill(0);
+        compute_factor_offsets(
+            &mut bufs.factors_to_eliminate,
+            &base_candidate,
+            primes,
+            inverses,
+            config,
+        );
+
+        mark_composites(
+            &mut bufs.factors_to_eliminate,
+            &mut bufs.factors_table,
+            primes,
+            config,
+        );
+        test_candidates_gpu(
+            &mut bufs,
+            &base_candidate,
+            config,
+            stats,
+            &mut gpu,
+            gpu_batch_size,
+            limb_count,
+            &mut batch_limbs,
+            &mut batch_candidates,
+        );
+
+        for iter in 1..config.sieve_iterations {
+            bufs.factors_table.fill(0);
+            mark_composites(
+                &mut bufs.factors_to_eliminate,
+                &mut bufs.factors_table,
+                primes,
+                config,
+            );
+            let iter_candidate = Integer::from(&sieve_chunk * iter) + &base_candidate;
+            test_candidates_gpu(
+                &mut bufs,
+                &iter_candidate,
+                config,
+                stats,
+                &mut gpu,
+                gpu_batch_size,
+                limb_count,
+                &mut batch_limbs,
+                &mut batch_candidates,
+            );
+        }
+    }
+}
+
 /// Main loop for a single worker thread.
 fn worker_loop(config: &Config, primes: &[u64], inverses: &[u64], stats: &Stats) {
     let mut bufs = WorkBuffers::new(config.pattern.len(), primes.len());
@@ -357,6 +549,8 @@ fn main() {
         args.o
     };
 
+    let gpu_mode = !args.gpu_socket.is_empty();
+
     println!("Tuple Digits: {}", args.digits);
     println!("Primorial Number: {} (p{}#)", m, m);
     println!("Primorial Offset: {}", o);
@@ -365,6 +559,10 @@ fn main() {
     println!("Stats Interval: {}s", args.stats_interval);
     println!("Threads: {}", args.threads);
     println!("Sieve Iterations: {}", args.sieve_iterations);
+    if gpu_mode {
+        println!("GPU Socket: {}", args.gpu_socket);
+        println!("GPU Batch Size: {}", args.gpu_batch_size);
+    }
 
     let config = Arc::new(Config::new(
         args.digits,
@@ -399,15 +597,29 @@ fn main() {
     });
 
     // Worker threads
+    let gpu_socket = args.gpu_socket.clone();
+    let gpu_batch_size = args.gpu_batch_size;
     let mut handles = Vec::with_capacity(args.threads);
     for _ in 0..args.threads {
         let config = Arc::clone(&config);
         let primes = Arc::clone(&primes);
         let inverses = Arc::clone(&inverses);
         let stats = Arc::clone(&stats);
+        let gpu_socket = gpu_socket.clone();
 
         handles.push(thread::spawn(move || {
-            worker_loop(&config, &primes, &inverses, &stats);
+            if gpu_socket.is_empty() {
+                worker_loop(&config, &primes, &inverses, &stats);
+            } else {
+                worker_loop_gpu(
+                    &config,
+                    &primes,
+                    &inverses,
+                    &stats,
+                    &gpu_socket,
+                    gpu_batch_size,
+                );
+            }
         }));
     }
 

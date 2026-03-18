@@ -25,6 +25,11 @@ impl Stats {
         self.counts[index].fetch_add(1, Ordering::Relaxed);
     }
 
+    #[inline]
+    pub fn increment_by(&self, index: usize, count: u64) {
+        self.counts[index].fetch_add(count, Ordering::Relaxed);
+    }
+
     pub fn cps(&self) -> u64 {
         let elapsed = self.start.elapsed().as_secs();
         if elapsed > 0 {

@@ -35,4 +35,12 @@ pub struct Args {
     /// Number of sieve iterations per target (amortizes presieve cost)
     #[arg(short = 'i', long = "sieve-iterations", default_value_t = 10)]
     pub sieve_iterations: u32,
+
+    /// Path to GPU service Unix socket (empty = CPU-only mode)
+    #[arg(long = "gpu-socket", default_value = "")]
+    pub gpu_socket: String,
+
+    /// Number of candidates per GPU batch
+    #[arg(long = "gpu-batch-size", default_value_t = 32768)]
+    pub gpu_batch_size: u32,
 }
