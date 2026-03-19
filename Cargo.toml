@@ -11,6 +11,7 @@ rug = "1.26"
 rand = "0.8"
 clap = { version = "4", features = ["derive"] }
 bytemuck = { version = "1", features = ["derive"] }
+crossbeam-channel = "0.5"
 
 [profile.release]
 lto = true

@@ -36,6 +36,10 @@ pub struct Args {
     #[arg(short = 'i', long = "sieve-iterations", default_value_t = 10)]
     pub sieve_iterations: u32,
 
+    /// Number of dedicated sieve workers (0 = monolithic mode, >0 = sieve-worker split)
+    #[arg(long = "sieve-workers", default_value_t = 0)]
+    pub sieve_workers: u32,
+
     /// Path to GPU service Unix socket (empty = CPU-only mode)
     #[arg(long = "gpu-socket", default_value = "")]
     pub gpu_socket: String,

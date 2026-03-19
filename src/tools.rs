@@ -9,13 +9,14 @@ pub fn primorial(m: u64) -> Integer {
     primes
         .iter()
         .take(m as usize + 1)
-        .fold(Integer::from(1), |acc, &p| Integer::from(acc * p))
+        .fold(Integer::from(1), |acc, &p| Integer::from(acc * p as u64))
 }
 
 /// Generate all primes up to `limit` using a Sieve of Eratosthenes.
 ///
-/// Ported from rieMiner (Pttn).
-pub fn generate_prime_table(limit: u64) -> Vec<u64> {
+/// Ported from rieMiner (Pttn). Returns `Vec<u32>` — all primes up to 2^32
+/// fit in u32, saving 50% memory vs u64 at large table limits.
+pub fn generate_prime_table(limit: u64) -> Vec<u32> {
     if limit < 2 {
         return vec![];
     }
@@ -34,11 +35,11 @@ pub fn generate_prime_table(limit: u64) -> Vec<u64> {
         f += 2;
     }
 
-    let mut primes = vec![1, 2];
+    let mut primes: Vec<u32> = vec![1, 2];
     let mut i = 1u64;
     while (i << 1) < limit {
         if composites[i as usize >> 6] & (1 << (i & 63)) == 0 {
-            primes.push((i << 1) + 1);
+            primes.push(((i << 1) + 1) as u32);
         }
         i += 1;
     }
@@ -46,14 +47,14 @@ pub fn generate_prime_table(limit: u64) -> Vec<u64> {
 }
 
 /// Compute the modular inverse of `primorial` mod each prime.
-pub fn primorial_inverses(primorial: &Integer, primes: &[u64]) -> Vec<u64> {
+pub fn primorial_inverses(primorial: &Integer, primes: &[u32]) -> Vec<u32> {
     primes
         .iter()
         .map(|&p| {
             let modulus = Integer::from(p);
             primorial
                 .invert_ref(&modulus)
-                .map(|r| Integer::from(r).to_u64().unwrap())
+                .map(|r| Integer::from(r).to_u64().unwrap() as u32)
                 .unwrap_or(0)
         })
         .collect()
@@ -90,7 +91,7 @@ pub fn auto_primorial_number(digits: u32, sieve_iterations: u32, sieve_size: u64
         if i == 0 {
             continue; // skip the "1" entry
         }
-        let next = Integer::from(&primorial * p);
+        let next = Integer::from(&primorial * p as u64);
         if next >= limit {
             return i as u64; // primorial index (for the primorial() function)
         }
@@ -103,15 +104,15 @@ pub fn auto_primorial_number(digits: u32, sieve_iterations: u32, sieve_size: u64
 ///
 /// The offset `o` must satisfy: `o + d` is coprime to the primorial for every
 /// pattern element `d`. This ensures no pattern element is trivially composite.
-pub fn find_primorial_offset(pattern: &[u64], primes: &[u64], m: u64) -> u64 {
+pub fn find_primorial_offset(pattern: &[u64], primes: &[u32], m: u64) -> u64 {
     // Collect the small primes that divide the primorial (skip the "1" entry)
-    let small_primes: Vec<u64> = primes[1..=m as usize].iter().copied().collect();
+    let small_primes: Vec<u32> = primes[1..=m as usize].iter().copied().collect();
 
     'outer: for o in 1u64.. {
         for &d in pattern {
             let candidate = o + d;
             for &p in &small_primes {
-                if candidate % p == 0 {
+                if candidate % p as u64 == 0 {
                     continue 'outer;
                 }
             }
