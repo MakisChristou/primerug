@@ -44,7 +44,7 @@ pub struct Args {
     #[arg(long = "primorial-offsets", default_value_t = 1)]
     pub primorial_offsets: usize,
 
-    /// Path to GPU service Unix socket (empty = CPU-only mode)
+    /// GPU service address: Unix socket path or host:port for TCP (empty = CPU-only)
     #[arg(long = "gpu-socket", default_value = "")]
     pub gpu_socket: String,
 

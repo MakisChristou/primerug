@@ -426,107 +426,60 @@ fn test_candidates(
     }
 }
 
-/// Collect sieve survivors and send to GPU for constellation testing.
-fn test_candidates_gpu(
-    bufs: &mut WorkBuffers,
+/// Collect sieve survivors and send to GPU using compact protocol.
+fn test_candidates_gpu_compact(
+    sieve: &[u64],
     first_candidate: &Integer,
     config: &Config,
     stats: &Stats,
     gpu: &mut GpuClient,
     gpu_batch_size: u32,
     limb_count: u16,
-    batch_limbs: &mut Vec<u32>,
-    batch_candidates: &mut Vec<Integer>,
+    primorial_limbs: &[u32],
 ) {
-    let primorial = &config.primorial;
-    batch_limbs.clear();
-    batch_candidates.clear();
-
-    // Collect survivors from sieve into batch
-    for (word_idx, &sieve_word) in bufs.factors_table[..SIEVE_WORDS].iter().enumerate() {
-        let mut survivors = !sieve_word;
-        while survivors != 0 {
-            let bit = survivors.trailing_zeros();
-            let f = word_idx as u32 * 64 + bit;
-
-            bufs.candidate.assign(primorial * f);
-            bufs.candidate += first_candidate;
-
-            // Extract limbs in LSF u32 order
-            let limbs = bufs.candidate.to_digits::<u32>(Order::Lsf);
-            // Pad to fixed limb_count
-            batch_limbs.extend_from_slice(&limbs);
-            for _ in limbs.len()..limb_count as usize {
-                batch_limbs.push(0);
-            }
-            batch_candidates.push(bufs.candidate.clone());
-
-            survivors &= survivors - 1;
-
-            // Submit when batch is full
-            if batch_candidates.len() as u32 >= gpu_batch_size {
-                submit_gpu_batch(
-                    batch_limbs,
-                    batch_candidates,
-                    config,
-                    stats,
-                    gpu,
-                    limb_count,
-                );
-            }
-        }
+    let survivors = collect_survivors(sieve);
+    if survivors.is_empty() {
+        return;
     }
 
-    // Submit remaining candidates
-    if !batch_candidates.is_empty() {
-        submit_gpu_batch(
-            batch_limbs,
-            batch_candidates,
-            config,
-            stats,
-            gpu,
+    // Serialize first_candidate once (not per candidate)
+    let fc_raw = first_candidate.to_digits::<u32>(Order::Lsf);
+    let mut first_cand_limbs = fc_raw;
+    first_cand_limbs.resize(limb_count as usize, 0);
+
+    for chunk in survivors.chunks(gpu_batch_size as usize) {
+        stats.increment_by(0, chunk.len() as u64);
+
+        match gpu.submit_compact_batch(
+            primorial_limbs,
+            &first_cand_limbs,
+            chunk,
+            &config.pattern,
             limb_count,
-        );
-    }
-}
-
-fn submit_gpu_batch(
-    batch_limbs: &mut Vec<u32>,
-    batch_candidates: &mut Vec<Integer>,
-    config: &Config,
-    stats: &Stats,
-    gpu: &mut GpuClient,
-    limb_count: u16,
-) {
-    let num = batch_candidates.len() as u32;
-    stats.increment_by(0, num as u64);
-
-    match gpu.submit_batch(batch_limbs, &config.pattern, limb_count, num) {
-        Ok(result) => {
-            // Update per-round stats from GPU results
-            for (i, &count) in result.round_counts.iter().enumerate() {
-                stats.increment_by(i + 1, count as u64);
-            }
-
-            for &idx in &result.survivor_indices {
-                if let Some(cand) = batch_candidates.get(idx as usize) {
-                    println!("Found: {cand}");
-                    tools::save_tuples(
-                        &[cand.clone()],
-                        "tuples.txt",
-                        config.pattern.len(),
-                    );
-                    process::exit(0);
+        ) {
+            Ok(result) => {
+                for (i, &count) in result.round_counts.iter().enumerate() {
+                    stats.increment_by(i + 1, count as u64);
+                }
+                for &idx in &result.survivor_indices {
+                    if let Some(&f) = chunk.get(idx as usize) {
+                        let found =
+                            Integer::from(&config.primorial * f) + first_candidate;
+                        println!("Found: {found}");
+                        tools::save_tuples(
+                            &[found],
+                            "tuples.txt",
+                            config.pattern.len(),
+                        );
+                        process::exit(0);
+                    }
                 }
             }
-        }
-        Err(e) => {
-            eprintln!("GPU batch error: {e}");
+            Err(e) => {
+                eprintln!("GPU batch error: {e}");
+            }
         }
     }
-
-    batch_limbs.clear();
-    batch_candidates.clear();
 }
 
 // ===== Monolithic worker loops =====
@@ -624,7 +577,7 @@ fn worker_loop_gpu(
     primes: &[u32],
     inverses: &[u32],
     stats: &Stats,
-    gpu_socket: &str,
+    gpu_addr: &str,
     gpu_batch_size: u32,
     dense_prime_count: usize,
     offsets: &[u64],
@@ -641,12 +594,14 @@ fn worker_loop_gpu(
     let bits = (config.digits as f64 * std::f64::consts::LOG2_10).ceil() as u32 + 64;
     let limb_count = ((bits + 31) / 32).max(64) as u16;
 
-    let mut gpu = GpuClient::connect(gpu_socket).unwrap_or_else(|e| {
-        panic!("Failed to connect to GPU service at {gpu_socket}: {e}");
+    let mut gpu = GpuClient::connect_auto(gpu_addr).unwrap_or_else(|e| {
+        panic!("Failed to connect to GPU service at {gpu_addr}: {e}");
     });
 
-    let mut batch_limbs = Vec::with_capacity(gpu_batch_size as usize * limb_count as usize);
-    let mut batch_candidates = Vec::with_capacity(gpu_batch_size as usize);
+    // Precompute primorial limbs
+    let prim_raw = config.primorial.to_digits::<u32>(Order::Lsf);
+    let mut primorial_limbs = prim_raw;
+    primorial_limbs.resize(limb_count as usize, 0);
 
     loop {
         let target = tools::random_target(config.digits, &mut rng);
@@ -708,16 +663,15 @@ fn worker_loop_gpu(
                 } else {
                     Integer::from(&sieve_chunk * iter) + &base_candidate
                 };
-                test_candidates_gpu(
-                    &mut bufs,
+                test_candidates_gpu_compact(
+                    &bufs.factors_table,
                     &iter_candidate,
                     config,
                     stats,
                     &mut gpu,
                     gpu_batch_size,
                     limb_count,
-                    &mut batch_limbs,
-                    &mut batch_candidates,
+                    &primorial_limbs,
                 );
             }
         }
@@ -853,59 +807,68 @@ fn test_worker_loop(config: &Config, stats: &Stats, receiver: &Receiver<Candidat
     }
 }
 
-/// Test worker (GPU): pulls batches from queue, sends to GPU service.
+/// Test worker (GPU): pulls batches from queue, sends compact format to GPU.
+/// No per-candidate GMP work — GPU reconstructs candidates from f-values.
 fn test_worker_loop_gpu(
     config: &Config,
     stats: &Stats,
     receiver: &Receiver<CandidateBatch>,
-    gpu_socket: &str,
+    gpu_addr: &str,
     gpu_batch_size: u32,
 ) {
-    let mut gpu = GpuClient::connect(gpu_socket).unwrap_or_else(|e| {
-        panic!("Failed to connect to GPU service at {gpu_socket}: {e}");
+    let mut gpu = GpuClient::connect_auto(gpu_addr).unwrap_or_else(|e| {
+        panic!("Failed to connect to GPU service at {gpu_addr}: {e}");
     });
 
     let bits = (config.digits as f64 * std::f64::consts::LOG2_10).ceil() as u32 + 64;
     let limb_count = ((bits + 31) / 32).max(64) as u16;
-    let mut batch_limbs = Vec::with_capacity(gpu_batch_size as usize * limb_count as usize);
-    let mut batch_candidates = Vec::with_capacity(gpu_batch_size as usize);
-    let mut candidate = Integer::new();
-    let primorial = &config.primorial;
+
+    // Precompute primorial limbs (constant, sent with every batch)
+    let prim_raw = config.primorial.to_digits::<u32>(Order::Lsf);
+    let mut primorial_limbs = prim_raw;
+    primorial_limbs.resize(limb_count as usize, 0);
 
     while let Ok(batch) = receiver.recv() {
-        for &f in &batch.survivors {
-            candidate.assign(primorial * f);
-            candidate += &batch.first_candidate;
+        // Serialize first_candidate once per sieve iteration (not per candidate!)
+        let fc_raw = batch.first_candidate.to_digits::<u32>(Order::Lsf);
+        let mut first_cand_limbs = fc_raw;
+        first_cand_limbs.resize(limb_count as usize, 0);
 
-            let limbs = candidate.to_digits::<u32>(Order::Lsf);
-            batch_limbs.extend_from_slice(&limbs);
-            for _ in limbs.len()..limb_count as usize {
-                batch_limbs.push(0);
-            }
-            batch_candidates.push(candidate.clone());
+        // Send survivors as raw f-values in chunks
+        for chunk in batch.survivors.chunks(gpu_batch_size as usize) {
+            stats.increment_by(0, chunk.len() as u64);
 
-            if batch_candidates.len() as u32 >= gpu_batch_size {
-                submit_gpu_batch(
-                    &mut batch_limbs,
-                    &mut batch_candidates,
-                    config,
-                    stats,
-                    &mut gpu,
-                    limb_count,
-                );
+            match gpu.submit_compact_batch(
+                &primorial_limbs,
+                &first_cand_limbs,
+                chunk,
+                &config.pattern,
+                limb_count,
+            ) {
+                Ok(result) => {
+                    for (i, &count) in result.round_counts.iter().enumerate() {
+                        stats.increment_by(i + 1, count as u64);
+                    }
+                    // Reconstruct only the found tuples (extremely rare)
+                    for &idx in &result.survivor_indices {
+                        if let Some(&f) = chunk.get(idx as usize) {
+                            let found =
+                                Integer::from(&config.primorial * f) + &batch.first_candidate;
+                            println!("Found: {found}");
+                            tools::save_tuples(
+                                &[found],
+                                "tuples.txt",
+                                config.pattern.len(),
+                            );
+                            process::exit(0);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("GPU batch error: {e}");
+                }
             }
         }
-    }
-
-    if !batch_candidates.is_empty() {
-        submit_gpu_batch(
-            &mut batch_limbs,
-            &mut batch_candidates,
-            config,
-            stats,
-            &mut gpu,
-            limb_count,
-        );
     }
 }
 
