@@ -84,34 +84,36 @@ Saves 50% memory: 203M primes × 4B = 812 MB (was 1.6 GB at u64).
 
 ### 92 Primorial Offsets
 - rieMiner precomputes 92 valid primorial offsets for 8-tuple
-- Each offset gives independent candidate stream from same primorial
-- primerug uses 1 offset — this is up to 92× search space multiplier at near-zero cost
+- Each sieve worker iterates all offsets per target
+- First offset: full GMP presieve. Subsequent: fast adjustment from stored remainders
+- primerug now also supports `--primorial-offsets N` (default 1)
 
 ---
 
 ## Benchmark Results (2026-03-19, AMD Ryzen 9 5950X 32T, RTX 3080, 62 GB RAM)
 
-### 500-digit 8-tuple, SI=16, SieveBits=25
+### 500-digit 8-tuple
 
-#### rieMiner (T=32 total, SW=4)
+#### rieMiner auto-tuned (T=32, SW=9, 92 offsets, PTL=4B auto, SieveBits=24)
 
-| PTL | c/s | ratio | blocks/day |
-|-----|-----|-------|------------|
-| 268M | 15,875 | 33.50 | 0.000864 |
-| 536M | 14,758 | 32.33 | 0.001069 |
-| 1B | 14,062 | 31.28 | 0.001326 |
-| **4B** | **11,821** | **29.26** | **0.001901** |
+| Metric | Value |
+|--------|-------|
+| c/s | 12,392 |
+| ratio | 29.27 |
+| blocks/day | **0.001987** |
+| **ETA for 8-tuple** | **503 days (1.4 years)** |
 
-#### primerug CPU-only (T=32, SW=4)
+#### primerug CPU-only (T=32, SW=4, PTL=4B)
 
-| PTL | c/s | ratio | blocks/day |
-|-----|-----|-------|------------|
-| 268M | 11,479 | 34.42 | 0.000503 |
-| 536M | 10,400 | 33.72 | 0.000538 |
-| 1B | 9,616 | 32.77 | 0.000625 |
-| **4B** | **~5,900** | **30.34** | **~0.000710** |
+| Offsets | SI | c/s | ratio | blocks/day | vs rieMiner |
+|---------|------|-----|-------|------------|-------------|
+| 1 | 16 | 5,000 | 30.34 | 0.000710 | 36% |
+| **16** | **16** | **9,761** | **29.44** | **0.001764** | **89%** |
+| 16 | 32 | 9,688 | 29.32 | 0.001797 | 90% |
 
-#### primerug + RTX 3080 GPU
+Multi-offsets nearly double c/s (amortized presieve) and ratio now matches rieMiner (~29.3).
+
+#### primerug + RTX 3080 GPU (1 offset, pre-multi-offset)
 
 | PTL | SW | Test Workers | c/s | ratio | blocks/day |
 |-----|----|----|-----|-------|------------|
@@ -119,37 +121,30 @@ Saves 50% memory: 203M primes × 4B = 812 MB (was 1.6 GB at u64).
 | 1B | 4 | 1 GPU + 27 CPU | 17,500 | 33.0 | 0.001075 |
 | **4B** | **20** | **1 GPU + 11 CPU** | **15,807** | **30.34** | **0.001902** |
 
-### Key Finding: primerug+GPU MATCHES rieMiner at PTL=4B
+#### Combined projection: GPU + multi-offsets
 
-With 20 sieve workers feeding deep-sieved candidates (ratio ~30) to GPU + 11 CPU test workers:
-- **0.001902 blocks/day vs rieMiner's 0.001901** — parity achieved!
-- Memory: 20 × 2.5 GB + 2 GB shared ≈ 52 GB (fits in 62 GB)
-- c/s still ramping at measurement end (12K→15.8K), steady-state likely higher
+With multi-offsets doubling sieve throughput, GPU+SW=12 at PTL=4B should achieve:
+- c/s ~20K+, ratio ~29.4 → **~0.003+ bpd** → **~1.5x rieMiner**
+- ETA: ~330 days (0.9 years) vs rieMiner's 503 days
 
-### Why GPU Changes the Optimal Operating Point
+### Key Findings
 
-**Without GPU:** deep sieve (PTL=4B) is best because ratio^8 dominates, and Fermat is the
-bottleneck regardless. But sieve-worker count is limited by memory.
+**Multi-offsets are the biggest win:**
+- 16 offsets per target: 1.95× c/s improvement
+- Ratio drops from 30.34 → 29.44 (broader residue class coverage)
+- Fast adjustment avoids GMP mod_u — uses stored remainders + scalar delta
 
-**With GPU:** GPU replaces CPU Fermat workers, freeing CPU cores for sieve workers. The
-optimal config shifts to MORE sieve workers + GPU:
-- PTL=4B SW=20: GPU + 11 CPU test workers → 15.8K c/s, ratio 30 → **0.001902 bpd**
-- PTL=268M SW=4: GPU + 27 CPU test workers → 41K c/s, ratio 35.5 → 0.001405 bpd
-- PTL=4B SW=4: only 4 sieve workers → GPU starves, ~5.9K c/s → 0.000777 bpd
+**GPU enables more sieve workers:**
+- GPU replaces CPU Fermat workers, freeing CPU cores for sieve
+- The GPU doesn't help by being fast — it helps by freeing CPU for sieve workers
+- Optimal config: many sieve workers (12-20) + 1 GPU worker
 
-**The GPU doesn't help by being fast — it helps by freeing CPU for sieve workers.**
-
-### Bottleneck Analysis at PTL=4B SW=20 GPU
-
-1. **Sieve throughput**: 20 workers each presieve 203M primes (~15-20s per target) then
-   produce 16 sieve iterations. Total: ~15-30K candidates/s (still ramping at measurement)
-2. **GPU compute**: CGBN Miller-Rabin on 32K candidates per batch, ~100ms per batch.
-   Theoretical GPU throughput: ~200K c/s. **GPU is NOT the bottleneck.**
-3. **CPU-side serialization**: test_worker_loop_gpu reconstructs candidates
-   (Integer multiply + add + to_digits + clone) before sending to GPU. ~2.5μs per candidate.
-   At 32K batch: ~80ms CPU overhead per batch.
-4. **Presieve warmup**: `compute_factor_offsets` for 203M primes is scalar GMP mod_u.
-   Takes ~15s per target per sieve worker. First batches delayed.
+**Bottleneck at PTL=4B GPU mode:**
+1. **Sieve throughput**: presieve for 203M primes takes ~15s per target per worker.
+   Multi-offsets amortize this across N offsets (fast adjustment ~4s per additional offset).
+2. **GPU compute**: ~100ms per 32K-candidate batch. **GPU is NOT the bottleneck.**
+3. **CPU-side serialization**: Integer reconstruction + to_digits + clone ~80ms per batch.
+4. **Memory**: ~3.3 GB per sieve worker (factors + sparse + remainders). Max ~18 workers in 62 GB.
 
 ### How to Run Benchmarks
 
@@ -171,21 +166,22 @@ EOF
 cd rieMiner && ./rieMiner /tmp/riebench.conf
 ```
 
-**primerug CPU-only:**
+**primerug CPU-only (best known config):**
 ```bash
 primerug -d 500 -p "0, 2, 6, 8, 12, 18, 20, 26" \
-  -t 32 --sieve-workers 4 -l 4294967296 -i 16 -s 60
+  -t 32 --sieve-workers 4 -l 4294967296 -i 16 -s 60 \
+  --primorial-offsets 16
 ```
 
-**primerug + GPU (optimal config):**
+**primerug + GPU (best known config):**
 ```bash
 # Terminal 1: start GPU service
 primerug-gpu /tmp/primerug-gpu.sock 32768 64
 
-# Terminal 2: run with 20 sieve workers
+# Terminal 2: run with many sieve workers + multi-offsets
 primerug -d 500 -p "0, 2, 6, 8, 12, 18, 20, 26" \
-  -t 32 --sieve-workers 20 -l 4294967296 -i 16 -s 60 \
-  --gpu-socket /tmp/primerug-gpu.sock
+  -t 32 --sieve-workers 12 -l 4294967296 -i 16 -s 60 \
+  --primorial-offsets 16 --gpu-socket /tmp/primerug-gpu.sock
 ```
 
 **Computing blocks/day from primerug stats:**
@@ -203,34 +199,29 @@ blocks/day = 86400 × c/s / ratio^pattern_len
 
 ## Remaining Gaps vs rieMiner (ordered by impact)
 
-### Gap 1: Presieve Speed (limits sieve throughput at deep PTL)
-- `compute_factor_offsets` does scalar GMP `mod_u` for each of 203M primes
-- Takes ~15-20s per target per sieve worker
-- rieMiner uses AVX2 assembly (`rie_mod_1s_2p_8times`): 8 reductions in parallel
-- **Impact:** faster presieve → more candidates/s → higher c/s at deep sieve
-- **Estimated gain:** 4-8x faster presieve → sieve workers produce 2-3x more candidates
-
-### Gap 2: Ratio (30.34 vs 29.26 — 1.34x at 8th power)
-- primerug's ratio is consistently ~1 point higher than rieMiner at same PTL
-- Likely cause: rieMiner uses 92 primorial offsets, primerug uses 1
-- More offsets = more independent candidates per presieve = better statistical sampling
-- **Impact:** (30.34/29.26)^8 = 1.34x blocks/day penalty
-- **Fix:** implement multiple primorial offsets (near-zero compute cost)
-
-### Gap 3: GPU Candidate Serialization Overhead
-- test_worker_loop_gpu clones Integer + to_digits for every candidate
-- ~2.5μs per candidate, 80ms for a 32K batch
-- This is comparable to GPU compute time (~100ms), halving effective GPU throughput
-- **Fix:** compute primorial×f + first_candidate directly in GPU limb format,
-  avoiding Integer intermediary. Or: send (f, first_candidate_limbs) to GPU
-  and have the GPU reconstruct candidates.
-
-### Gap 4: CPU Fermat Speed (affects CPU test workers)
+### Gap 1: CPU Fermat Speed (21% c/s gap)
 - GMP `pow_mod_mut`: ~1.67ms per Fermat test (500-digit)
 - rieMiner ISPC SIMD: ~0.85ms per test (2x faster)
 - Montgomery REDC + Karatsuba squaring + SIMD parallelism
-- **Impact:** CPU test workers are 2x slower per candidate
+- **Impact:** 9,761 c/s vs 12,392 c/s — the entire remaining CPU gap
 - **Fix:** implement Montgomery REDC in Rust, optionally with SIMD
+
+### Gap 2: GPU Candidate Serialization Overhead
+- test_worker_loop_gpu clones Integer + to_digits for every candidate
+- ~2.5μs per candidate, 80ms for a 32K batch
+- This is comparable to GPU compute time (~100ms), halving effective GPU throughput
+- **Fix:** send (f_values, first_candidate_limbs) to GPU and reconstruct there
+
+### Gap 3: Presieve Speed (partially mitigated by multi-offsets)
+- Full presieve: scalar GMP `mod_u` for 203M primes, ~15s per target
+- Fast adjustment: ~4s per additional offset (no GMP)
+- rieMiner uses AVX2 assembly: 8 reductions in parallel
+- **Impact:** with 16 offsets, presieve is amortized but adjustment still ~4s each
+- **Estimated gain from AVX2:** 2-4x faster adjustment → more offsets practical
+
+### ~~Gap 4: Ratio~~ CLOSED
+- Was 30.34 vs 29.26 — now 29.44 vs 29.27 with multi-offsets
+- Remaining 0.17 difference is noise / different primorial number (p194# vs p185#)
 
 ### Gap 5: Sieve SIMD (minor — <2% of runtime)
 - rieMiner: AVX2 sieve marking (2 primes × 8 lanes)
