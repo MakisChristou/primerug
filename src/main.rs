@@ -777,6 +777,14 @@ fn sieve_worker_loop(
     }
 }
 
+/// Test worker (drain): pulls batches from queue, counts survivors without Fermat testing.
+/// Used for sieve-benchmark mode to measure pure sieve throughput.
+fn test_worker_drain(stats: &Stats, receiver: &Receiver<CandidateBatch>) {
+    while let Ok(batch) = receiver.recv() {
+        stats.increment_by(0, batch.survivors.len() as u64);
+    }
+}
+
 /// Test worker (CPU): pulls batches from queue, runs Fermat tests.
 fn test_worker_loop(config: &Config, stats: &Stats, receiver: &Receiver<CandidateBatch>) {
     let mut bufs = TestBuffers::new();
@@ -1061,6 +1069,7 @@ fn main() {
         let gpu_socket = args.gpu_socket.clone();
         let gpu_batch_size = args.gpu_batch_size;
 
+        let sieve_benchmark = args.sieve_benchmark;
         for i in 0..test_workers {
             let config = Arc::clone(&config);
             let stats = Arc::clone(&stats);
@@ -1068,7 +1077,9 @@ fn main() {
             let gpu_socket = gpu_socket.clone();
 
             handles.push(thread::spawn(move || {
-                if gpu_mode && i == 0 {
+                if sieve_benchmark {
+                    test_worker_drain(&stats, &receiver);
+                } else if gpu_mode && i == 0 {
                     test_worker_loop_gpu(
                         &config,
                         &stats,

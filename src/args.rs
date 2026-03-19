@@ -51,4 +51,8 @@ pub struct Args {
     /// Number of candidates per GPU batch
     #[arg(long = "gpu-batch-size", default_value_t = 32768)]
     pub gpu_batch_size: u32,
+
+    /// Sieve benchmark mode: skip Fermat testing, measure sieve throughput only
+    #[arg(long = "sieve-benchmark", default_value_t = false)]
+    pub sieve_benchmark: bool,
 }
