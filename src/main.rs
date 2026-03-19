@@ -140,9 +140,13 @@ fn compute_mi(inverses: &[u32], p: u64, i: usize) -> [u64; 4] {
 /// Dense primes (< factorMax) store offsets in `factors` for iterative marking.
 /// Sparse primes (≥ factorMax) hit at most once across all sieve iterations,
 /// so their positions are pre-sorted into `additional[iteration]`.
+///
+/// Also stores `remainders[i] = first_candidate mod primes[i]` for fast
+/// offset adjustment when using multiple primorial offsets.
 fn compute_factor_offsets(
     factors: &mut [u32],
     additional: &mut [Vec<u32>],
+    remainders: &mut [u32],
     first_candidate: &Integer,
     primes: &[u32],
     inverses: &[u32],
@@ -162,6 +166,7 @@ fn compute_factor_offsets(
         let p = prime as u64;
         let mi = compute_mi(inverses, p, i);
         let r = first_candidate.mod_u(prime) as u64;
+        remainders[i] = r as u32;
         let mut f_p = ((p - r) * inverses[i] as u64) % p;
 
         if i < dense_prime_count {
@@ -183,6 +188,71 @@ fn compute_factor_offsets(
             } else if f_p < factor_max {
                 let iter = f_p as usize / SIEVE_SIZE;
                 additional[iter].push((f_p as usize % SIEVE_SIZE) as u32);
+            }
+        }
+    }
+}
+
+/// Fast offset adjustment: recompute factor offsets from stored remainders.
+///
+/// When switching to a new primorial offset, the base candidate changes by
+/// `delta = new_offset - base_offset`. Instead of recomputing GMP mod_u for
+/// every prime, we adjust the stored remainders: `new_r = (old_r + delta) mod p`.
+fn adjust_factor_offsets(
+    factors: &mut [u32],
+    additional: &mut [Vec<u32>],
+    remainders: &mut [u32],
+    delta: u64,
+    primes: &[u32],
+    inverses: &[u32],
+    config: &Config,
+    dense_prime_count: usize,
+) {
+    let m = config.m as usize;
+    let tuple_size = config.pattern.len();
+    let half_pattern = &config.half_pattern;
+    let factor_max = config.sieve_iterations as u64 * SIEVE_SIZE as u64;
+
+    for v in additional.iter_mut() {
+        v.clear();
+    }
+
+    for (i, &prime) in primes.iter().enumerate() {
+        if i < m {
+            continue;
+        }
+
+        let p = prime as u64;
+        let delta_mod_p = delta % p;
+
+        // Update remainder: new_r = (old_r + delta) mod p
+        let mut new_r = remainders[i] as u64 + delta_mod_p;
+        if new_r >= p {
+            new_r -= p;
+        }
+        remainders[i] = new_r as u32;
+
+        let mi = compute_mi(inverses, p, i);
+        let mut f_p = ((p - new_r) * inverses[i] as u64) % p;
+
+        if i < dense_prime_count {
+            factors[tuple_size * i] = f_p as u32;
+        } else if f_p < factor_max {
+            additional[f_p as usize / SIEVE_SIZE].push((f_p as usize % SIEVE_SIZE) as u32);
+        }
+
+        for f in 1..tuple_size {
+            let hp = mi[half_pattern[f] as usize];
+            if f_p < hp {
+                f_p += p;
+            }
+            f_p -= hp;
+
+            if i < dense_prime_count {
+                factors[tuple_size * i + f] = f_p as u32;
+            } else if f_p < factor_max {
+                additional[f_p as usize / SIEVE_SIZE]
+                    .push((f_p as usize % SIEVE_SIZE) as u32);
             }
         }
     }
@@ -468,69 +538,82 @@ fn worker_loop(
     inverses: &[u32],
     stats: &Stats,
     dense_prime_count: usize,
+    offsets: &[u64],
 ) {
     let mut bufs = WorkBuffers::new(
         config.pattern.len(),
         dense_prime_count,
         config.sieve_iterations as usize,
     );
+    let mut remainders = vec![0u32; primes.len()];
     let mut rng = thread_rng();
     let sieve_chunk = Integer::from(&config.primorial * SIEVE_SIZE as u64);
 
     loop {
         let target = tools::random_target(config.digits, &mut rng);
         let t2 = next_primorial_multiple(&target, &config.primorial);
-        let base_candidate = Integer::from(&t2 + config.o);
 
         if &config.primorial >= &target {
             eprintln!("Error: primorial is >= target. Pick a smaller primorial number.");
             process::exit(1);
         }
 
-        // Compute factor offsets once per target (the expensive mod_u presieve)
-        bufs.factors_to_eliminate.fill(0);
-        for v in &mut bufs.additional_factors {
-            v.clear();
-        }
-        bufs.factors_table.fill(0);
-        compute_factor_offsets(
-            &mut bufs.factors_to_eliminate,
-            &mut bufs.additional_factors,
-            &base_candidate,
-            primes,
-            inverses,
-            config,
-            dense_prime_count,
-        );
+        for (oi, &offset) in offsets.iter().enumerate() {
+            let base_candidate = Integer::from(&t2 + offset);
 
-        // First iteration: mark composites (dense + sparse) and test
-        mark_composites(
-            &mut bufs.factors_to_eliminate,
-            &mut bufs.factors_table,
-            primes,
-            config,
-            dense_prime_count,
-        );
-        mark_composites_sparse(&bufs.additional_factors[0], &mut bufs.factors_table);
-        test_candidates(&mut bufs, &base_candidate, config, stats);
+            bufs.factors_to_eliminate.fill(0);
+            for v in &mut bufs.additional_factors {
+                v.clear();
+            }
 
-        // Subsequent iterations: reuse carried-over factor offsets
-        for iter in 1..config.sieve_iterations {
-            bufs.factors_table.fill(0);
-            mark_composites(
-                &mut bufs.factors_to_eliminate,
-                &mut bufs.factors_table,
-                primes,
-                config,
-                dense_prime_count,
-            );
-            mark_composites_sparse(
-                &bufs.additional_factors[iter as usize],
-                &mut bufs.factors_table,
-            );
+            if oi == 0 {
+                // Full presieve (expensive GMP mod_u)
+                compute_factor_offsets(
+                    &mut bufs.factors_to_eliminate,
+                    &mut bufs.additional_factors,
+                    &mut remainders,
+                    &base_candidate,
+                    primes,
+                    inverses,
+                    config,
+                    dense_prime_count,
+                );
+            } else {
+                // Fast adjustment from stored remainders
+                let delta = offset - offsets[oi - 1];
+                adjust_factor_offsets(
+                    &mut bufs.factors_to_eliminate,
+                    &mut bufs.additional_factors,
+                    &mut remainders,
+                    delta,
+                    primes,
+                    inverses,
+                    config,
+                    dense_prime_count,
+                );
+            }
 
-            let iter_candidate = Integer::from(&sieve_chunk * iter) + &base_candidate;
-            test_candidates(&mut bufs, &iter_candidate, config, stats);
+            for iter in 0..config.sieve_iterations {
+                bufs.factors_table.fill(0);
+                mark_composites(
+                    &mut bufs.factors_to_eliminate,
+                    &mut bufs.factors_table,
+                    primes,
+                    config,
+                    dense_prime_count,
+                );
+                mark_composites_sparse(
+                    &bufs.additional_factors[iter as usize],
+                    &mut bufs.factors_table,
+                );
+
+                let iter_candidate = if iter == 0 {
+                    base_candidate.clone()
+                } else {
+                    Integer::from(&sieve_chunk * iter) + &base_candidate
+                };
+                test_candidates(&mut bufs, &iter_candidate, config, stats);
+            }
         }
     }
 }
@@ -544,16 +627,17 @@ fn worker_loop_gpu(
     gpu_socket: &str,
     gpu_batch_size: u32,
     dense_prime_count: usize,
+    offsets: &[u64],
 ) {
     let mut bufs = WorkBuffers::new(
         config.pattern.len(),
         dense_prime_count,
         config.sieve_iterations as usize,
     );
+    let mut remainders = vec![0u32; primes.len()];
     let mut rng = thread_rng();
     let sieve_chunk = Integer::from(&config.primorial * SIEVE_SIZE as u64);
 
-    // Compute limb_count from digit count: digits → bits → u32 limbs, rounded up to 64
     let bits = (config.digits as f64 * std::f64::consts::LOG2_10).ceil() as u32 + 64;
     let limb_count = ((bits + 31) / 32).max(64) as u16;
 
@@ -567,73 +651,75 @@ fn worker_loop_gpu(
     loop {
         let target = tools::random_target(config.digits, &mut rng);
         let t2 = next_primorial_multiple(&target, &config.primorial);
-        let base_candidate = Integer::from(&t2 + config.o);
 
         if &config.primorial >= &target {
             eprintln!("Error: primorial is >= target. Pick a smaller primorial number.");
             process::exit(1);
         }
 
-        bufs.factors_to_eliminate.fill(0);
-        for v in &mut bufs.additional_factors {
-            v.clear();
-        }
-        bufs.factors_table.fill(0);
-        compute_factor_offsets(
-            &mut bufs.factors_to_eliminate,
-            &mut bufs.additional_factors,
-            &base_candidate,
-            primes,
-            inverses,
-            config,
-            dense_prime_count,
-        );
+        for (oi, &offset) in offsets.iter().enumerate() {
+            let base_candidate = Integer::from(&t2 + offset);
 
-        mark_composites(
-            &mut bufs.factors_to_eliminate,
-            &mut bufs.factors_table,
-            primes,
-            config,
-            dense_prime_count,
-        );
-        mark_composites_sparse(&bufs.additional_factors[0], &mut bufs.factors_table);
-        test_candidates_gpu(
-            &mut bufs,
-            &base_candidate,
-            config,
-            stats,
-            &mut gpu,
-            gpu_batch_size,
-            limb_count,
-            &mut batch_limbs,
-            &mut batch_candidates,
-        );
+            bufs.factors_to_eliminate.fill(0);
+            for v in &mut bufs.additional_factors {
+                v.clear();
+            }
 
-        for iter in 1..config.sieve_iterations {
-            bufs.factors_table.fill(0);
-            mark_composites(
-                &mut bufs.factors_to_eliminate,
-                &mut bufs.factors_table,
-                primes,
-                config,
-                dense_prime_count,
-            );
-            mark_composites_sparse(
-                &bufs.additional_factors[iter as usize],
-                &mut bufs.factors_table,
-            );
-            let iter_candidate = Integer::from(&sieve_chunk * iter) + &base_candidate;
-            test_candidates_gpu(
-                &mut bufs,
-                &iter_candidate,
-                config,
-                stats,
-                &mut gpu,
-                gpu_batch_size,
-                limb_count,
-                &mut batch_limbs,
-                &mut batch_candidates,
-            );
+            if oi == 0 {
+                compute_factor_offsets(
+                    &mut bufs.factors_to_eliminate,
+                    &mut bufs.additional_factors,
+                    &mut remainders,
+                    &base_candidate,
+                    primes,
+                    inverses,
+                    config,
+                    dense_prime_count,
+                );
+            } else {
+                let delta = offset - offsets[oi - 1];
+                adjust_factor_offsets(
+                    &mut bufs.factors_to_eliminate,
+                    &mut bufs.additional_factors,
+                    &mut remainders,
+                    delta,
+                    primes,
+                    inverses,
+                    config,
+                    dense_prime_count,
+                );
+            }
+
+            for iter in 0..config.sieve_iterations {
+                bufs.factors_table.fill(0);
+                mark_composites(
+                    &mut bufs.factors_to_eliminate,
+                    &mut bufs.factors_table,
+                    primes,
+                    config,
+                    dense_prime_count,
+                );
+                mark_composites_sparse(
+                    &bufs.additional_factors[iter as usize],
+                    &mut bufs.factors_table,
+                );
+                let iter_candidate = if iter == 0 {
+                    base_candidate.clone()
+                } else {
+                    Integer::from(&sieve_chunk * iter) + &base_candidate
+                };
+                test_candidates_gpu(
+                    &mut bufs,
+                    &iter_candidate,
+                    config,
+                    stats,
+                    &mut gpu,
+                    gpu_batch_size,
+                    limb_count,
+                    &mut batch_limbs,
+                    &mut batch_candidates,
+                );
+            }
         }
     }
 }
@@ -641,17 +727,22 @@ fn worker_loop_gpu(
 // ===== Sieve-worker mode =====
 
 /// Sieve worker: owns sieve buffers, pushes survivor batches to queue.
+///
+/// Iterates over all primorial offsets per target. The first offset uses a full
+/// GMP presieve; subsequent offsets use fast adjustment from stored remainders.
 fn sieve_worker_loop(
     config: &Config,
     primes: &[u32],
     inverses: &[u32],
     sender: &Sender<CandidateBatch>,
     dense_prime_count: usize,
+    offsets: &[u64],
 ) {
     let sieve_iterations = config.sieve_iterations as usize;
     let pattern_len = config.pattern.len();
     let mut factors = vec![0u32; pattern_len * dense_prime_count];
     let mut additional: Vec<Vec<u32>> = (0..sieve_iterations).map(|_| Vec::new()).collect();
+    let mut remainders = vec![0u32; primes.len()];
     let mut sieve = vec![0u64; SIEVE_WORDS];
     let mut rng = thread_rng();
     let sieve_chunk = Integer::from(&config.primorial * SIEVE_SIZE as u64);
@@ -659,47 +750,74 @@ fn sieve_worker_loop(
     loop {
         let target = tools::random_target(config.digits, &mut rng);
         let t2 = next_primorial_multiple(&target, &config.primorial);
-        let base_candidate = Integer::from(&t2 + config.o);
 
         if &config.primorial >= &target {
             eprintln!("Error: primorial is >= target. Pick a smaller primorial number.");
             process::exit(1);
         }
 
-        factors.fill(0);
-        for v in &mut additional {
-            v.clear();
-        }
-        compute_factor_offsets(
-            &mut factors,
-            &mut additional,
-            &base_candidate,
-            primes,
-            inverses,
-            config,
-            dense_prime_count,
-        );
+        for (oi, &offset) in offsets.iter().enumerate() {
+            let base_candidate = Integer::from(&t2 + offset);
 
-        for iter in 0..sieve_iterations {
-            sieve.fill(0);
-            mark_composites(&mut factors, &mut sieve, primes, config, dense_prime_count);
-            mark_composites_sparse(&additional[iter], &mut sieve);
+            factors.fill(0);
+            for v in &mut additional {
+                v.clear();
+            }
 
-            let first_candidate = if iter == 0 {
-                base_candidate.clone()
+            if oi == 0 {
+                // Full presieve (expensive GMP mod_u) — only for first offset
+                compute_factor_offsets(
+                    &mut factors,
+                    &mut additional,
+                    &mut remainders,
+                    &base_candidate,
+                    primes,
+                    inverses,
+                    config,
+                    dense_prime_count,
+                );
             } else {
-                Integer::from(&sieve_chunk * iter as u32) + &base_candidate
-            };
+                // Fast adjustment from stored remainders (no GMP)
+                let delta = offset - offsets[oi - 1];
+                adjust_factor_offsets(
+                    &mut factors,
+                    &mut additional,
+                    &mut remainders,
+                    delta,
+                    primes,
+                    inverses,
+                    config,
+                    dense_prime_count,
+                );
+            }
 
-            let survivors = collect_survivors(&sieve);
-            if sender
-                .send(CandidateBatch {
-                    first_candidate,
-                    survivors,
-                })
-                .is_err()
-            {
-                return;
+            for iter in 0..sieve_iterations {
+                sieve.fill(0);
+                mark_composites(
+                    &mut factors,
+                    &mut sieve,
+                    primes,
+                    config,
+                    dense_prime_count,
+                );
+                mark_composites_sparse(&additional[iter], &mut sieve);
+
+                let first_candidate = if iter == 0 {
+                    base_candidate.clone()
+                } else {
+                    Integer::from(&sieve_chunk * iter as u32) + &base_candidate
+                };
+
+                let survivors = collect_survivors(&sieve);
+                if sender
+                    .send(CandidateBatch {
+                        first_candidate,
+                        survivors,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
             }
         }
     }
@@ -812,20 +930,31 @@ fn main() {
 
     let primorial = tools::primorial(m);
 
-    // Auto-select primorial offset if not specified
-    let o = if args.o == 0 {
-        let small_primes = tools::generate_prime_table(m * m + 1);
-        tools::find_primorial_offset(&pattern, &small_primes, m)
+    // Generate primorial offsets
+    let small_primes_for_offset = tools::generate_prime_table(m * m + 1);
+    let offsets: Vec<u64> = if args.o != 0 {
+        vec![args.o]
     } else {
-        args.o
+        tools::find_primorial_offsets(
+            &pattern,
+            &small_primes_for_offset,
+            m,
+            args.primorial_offsets,
+        )
     };
+    let o = offsets[0];
 
     let gpu_mode = !args.gpu_socket.is_empty();
     let sieve_workers = args.sieve_workers;
 
     println!("Tuple Digits: {}", args.digits);
     println!("Primorial Number: {} (p{}#)", m, m);
-    println!("Primorial Offset: {}", o);
+    println!(
+        "Primorial Offsets: {} (first: {}, last: {})",
+        offsets.len(),
+        offsets[0],
+        offsets[offsets.len() - 1]
+    );
     println!("Constellation Pattern: {}", args.pattern);
     println!("Prime Table Limit: {}", args.table_limit);
     println!("Stats Interval: {}s", args.stats_interval);
@@ -872,6 +1001,7 @@ fn main() {
         primes.len() - dense_prime_count
     );
 
+    let offsets = Arc::new(offsets);
     let stats = Arc::new(Stats::new(config.pattern.len()));
 
     println!("Done. Starting sieve/primality testing loop...");
@@ -894,11 +1024,19 @@ fn main() {
             let primes = Arc::clone(&primes);
             let inverses = Arc::clone(&inverses);
             let stats = Arc::clone(&stats);
+            let offsets = Arc::clone(&offsets);
             let gpu_socket = gpu_socket.clone();
 
             handles.push(thread::spawn(move || {
                 if gpu_socket.is_empty() {
-                    worker_loop(&config, &primes, &inverses, &stats, dense_prime_count);
+                    worker_loop(
+                        &config,
+                        &primes,
+                        &inverses,
+                        &stats,
+                        dense_prime_count,
+                        &offsets,
+                    );
                 } else {
                     worker_loop_gpu(
                         &config,
@@ -908,6 +1046,7 @@ fn main() {
                         &gpu_socket,
                         gpu_batch_size,
                         dense_prime_count,
+                        &offsets,
                     );
                 }
             }));
@@ -924,8 +1063,10 @@ fn main() {
             args.threads
         );
 
-        let queue_capacity =
-            (sieve_workers as usize * config.sieve_iterations as usize).max(32);
+        let queue_capacity = (sieve_workers as usize
+            * config.sieve_iterations as usize
+            * offsets.len())
+        .max(32);
         let queue = WorkQueue::new(queue_capacity);
 
         let mut handles = Vec::new();
@@ -935,10 +1076,18 @@ fn main() {
             let config = Arc::clone(&config);
             let primes = Arc::clone(&primes);
             let inverses = Arc::clone(&inverses);
+            let offsets = Arc::clone(&offsets);
             let sender = queue.sender.clone();
 
             handles.push(thread::spawn(move || {
-                sieve_worker_loop(&config, &primes, &inverses, &sender, dense_prime_count);
+                sieve_worker_loop(
+                    &config,
+                    &primes,
+                    &inverses,
+                    &sender,
+                    dense_prime_count,
+                    &offsets,
+                );
             }));
         }
         // Drop the original sender so receivers see disconnect when all sieve workers exit
@@ -957,7 +1106,6 @@ fn main() {
 
             handles.push(thread::spawn(move || {
                 if gpu_mode && i == 0 {
-                    // First test worker uses GPU
                     test_worker_loop_gpu(
                         &config,
                         &stats,

@@ -40,6 +40,10 @@ pub struct Args {
     #[arg(long = "sieve-workers", default_value_t = 0)]
     pub sieve_workers: u32,
 
+    /// Number of primorial offsets per target (amortizes presieve cost)
+    #[arg(long = "primorial-offsets", default_value_t = 1)]
+    pub primorial_offsets: usize,
+
     /// Path to GPU service Unix socket (empty = CPU-only mode)
     #[arg(long = "gpu-socket", default_value = "")]
     pub gpu_socket: String,

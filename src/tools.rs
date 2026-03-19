@@ -105,8 +105,13 @@ pub fn auto_primorial_number(digits: u32, sieve_iterations: u32, sieve_size: u64
 /// The offset `o` must satisfy: `o + d` is coprime to the primorial for every
 /// pattern element `d`. This ensures no pattern element is trivially composite.
 pub fn find_primorial_offset(pattern: &[u64], primes: &[u32], m: u64) -> u64 {
-    // Collect the small primes that divide the primorial (skip the "1" entry)
+    find_primorial_offsets(pattern, primes, m, 1)[0]
+}
+
+/// Find `count` valid primorial offsets for the given pattern.
+pub fn find_primorial_offsets(pattern: &[u64], primes: &[u32], m: u64, count: usize) -> Vec<u64> {
     let small_primes: Vec<u32> = primes[1..=m as usize].iter().copied().collect();
+    let mut offsets = Vec::with_capacity(count);
 
     'outer: for o in 1u64.. {
         for &d in pattern {
@@ -117,9 +122,12 @@ pub fn find_primorial_offset(pattern: &[u64], primes: &[u32], m: u64) -> u64 {
                 }
             }
         }
-        return o;
+        offsets.push(o);
+        if offsets.len() >= count {
+            break;
+        }
     }
-    unreachable!()
+    offsets
 }
 
 /// Append found tuples to a file.
