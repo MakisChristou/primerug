@@ -113,19 +113,23 @@ Saves 50% memory: 203M primes × 4B = 812 MB (was 1.6 GB at u64).
 
 Multi-offsets nearly double c/s (amortized presieve) and ratio now matches rieMiner (~29.3).
 
-#### primerug + RTX 3080 GPU (1 offset, pre-multi-offset)
+#### primerug + RTX 3080 GPU (best measured config)
 
-| PTL | SW | Test Workers | c/s | ratio | blocks/day |
-|-----|----|----|-----|-------|------------|
-| 268M | 4 | 1 GPU + 27 CPU | 41,117 | 35.55 | 0.001405 |
-| 1B | 4 | 1 GPU + 27 CPU | 17,500 | 33.0 | 0.001075 |
-| **4B** | **20** | **1 GPU + 11 CPU** | **15,807** | **30.34** | **0.001902** |
+| Config | c/s | ratio | blocks/day | ETA |
+|--------|-----|-------|------------|-----|
+| SW=12 T=32 16-offsets PTL=4B | **23,836** | **29.42** | **0.0037** | **273 days** |
 
-#### Combined projection: GPU + multi-offsets
+**GPU peak throughput: 60,000 c/s** (measured with synthetic benchmark).
+Not 328K as originally estimated — CGBN Miller-Rabin at 2048 bits costs ~0.5s per 32K batch.
 
-With multi-offsets doubling sieve throughput, GPU+SW=12 at PTL=4B should achieve:
-- c/s ~20K+, ratio ~29.4 → **~0.003+ bpd** → **~1.5x rieMiner**
-- ETA: ~330 days (0.9 years) vs rieMiner's 503 days
+| Batch size | ms/batch | c/s |
+|-----------|---------|-----|
+| 4,096 | 97 ms | 42,131 |
+| 8,192 | 159 ms | 51,469 |
+| 32,768 | 546 ms | 59,989 |
+
+GPU is at ~40% utilization with 1 sieve machine (25K feed vs 60K capacity).
+2-3 sieve machines would saturate it.
 
 ### Key Findings
 
@@ -134,17 +138,17 @@ With multi-offsets doubling sieve throughput, GPU+SW=12 at PTL=4B should achieve
 - Ratio drops from 30.34 → 29.44 (broader residue class coverage)
 - Fast adjustment avoids GMP mod_u — uses stored remainders + scalar delta
 
-**GPU enables more sieve workers:**
-- GPU replaces CPU Fermat workers, freeing CPU cores for sieve
-- The GPU doesn't help by being fast — it helps by freeing CPU for sieve workers
-- Optimal config: many sieve workers (12-20) + 1 GPU worker
+**Optimal config: SW=12 T=32 with GPU.**
+- 12 sieve workers + 1 GPU worker + 19 CPU Fermat workers
+- Tested SW=17 T=18 (pure GPU, no CPU Fermat): slightly worse (22.5K vs 23.8K)
+- The 19 CPU workers add ~3-4K c/s and the sieve can't use those cores anyway
 
-**Bottleneck at PTL=4B GPU mode:**
-1. **Sieve throughput**: presieve for 203M primes takes ~15s per target per worker.
-   Multi-offsets amortize this across N offsets (fast adjustment ~4s per additional offset).
-2. **GPU compute**: ~100ms per 32K-candidate batch. **GPU is NOT the bottleneck.**
-3. **CPU-side serialization**: Integer reconstruction + to_digits + clone ~80ms per batch.
-4. **Memory**: ~3.3 GB per sieve worker (factors + sparse + remainders). Max ~18 workers in 62 GB.
+**Bottleneck is DRAM bandwidth, not RAM capacity or GPU:**
+1. **Sieve peaks at SW=12** then drops. Each worker accesses ~900MB of factor data
+   in random patterns. 12 workers saturate ~50 GB/s dual-channel DDR4.
+2. **More RAM does NOT help.** Tested: SW=16 with enough RAM still drops 20%.
+3. **GPU at 60K c/s is only 40% utilized** with 1 sieve machine producing 25K c/s.
+4. **To go faster:** add sieve machines (horizontal scaling), not RAM or GPU.
 
 ### How to Run Benchmarks
 
